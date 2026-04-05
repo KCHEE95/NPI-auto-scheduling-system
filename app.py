@@ -62,12 +62,20 @@ DEPT_CAPACITY = {
 # ========== 2. 辅助函数 ==========
 @st.cache_data
 def load_excel(file):
-    df = pd.read_excel(file, header=5)   # header在第6行
+    """读取上传的Excel，跳过前5行，第6行为列名"""
+    df = pd.read_excel(file, header=5)   # header=5 即第6行作为列名
+    # 删除全空的行
     df = df.dropna(how='all')
-    df['Main Part Num'] = df['Main Part Num'].fillna(method='ffill')
+    # 向下填充 Main Part Num（使用现代pandas的ffill方法）
+    if 'Main Part Num' in df.columns:
+        df['Main Part Num'] = df['Main Part Num'].ffill()
+    else:
+        st.error("Excel 文件中缺少 'Main Part Num' 列，请检查导出格式。")
+        st.stop()
     return df
 
 def extract_step_sequence(row):
+    """从 Step1~Step20 列提取非空的工序列表"""
     steps = []
     for i in range(1, 21):
         col = f'Step {i}'
@@ -76,6 +84,7 @@ def extract_step_sequence(row):
     return steps
 
 def compute_eta(row, today):
+    """根据当前工序、工序列表、标准工时，计算预计完成日期"""
     current_op = row['Current Operation']
     steps = row['_steps']
     if not steps:
@@ -100,12 +109,17 @@ if uploaded_file is not None:
     df = load_excel(uploaded_file)
     st.sidebar.success(f"✅ 加载 {len(df)} 条记录")
 
+    # 提取工序列表
     df['_steps'] = df.apply(extract_step_sequence, axis=1)
+    # 计算ETA
     today = datetime.now().date()
     df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
+    # 映射部门
     df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
+    # 状态标记
     df['Status'] = df['ETA'].apply(lambda x: '⚠️ 可能延期' if x < today else '✅ 正常')
 
+    # ========== 4. 多页面 ==========
     tab1, tab2, tab3, tab4 = st.tabs(["📋 所有项目", "🏭 部门工作台", "📈 产能仪表板", "🔍 销售查询"])
 
     with tab1:
@@ -125,12 +139,12 @@ if uploaded_file is not None:
         dept_load.columns = ['部门', '任务数']
         dept_load['容量'] = dept_load['部门'].map(DEPT_CAPACITY).fillna(5)
         dept_load['负载率 (%)'] = (dept_load['任务数'] / dept_load['容量'] * 100).round(1)
-        fig = px.bar(dept_load, x='部门', y='任务数', color='负载率 (%)', title='各部门负载')
+        fig = px.bar(dept_load, x='部门', y='任务数', color='负载率 (%)', title='各部门当前负载')
         st.plotly_chart(fig, use_container_width=True)
         st.dataframe(dept_load)
 
     with tab4:
-        q = st.text_input("输入 Main Part Num 或 Subpart Part Num")
+        q = st.text_input("输入 Main Part Num 或 Subpart Part Num (支持模糊匹配)")
         if q:
             mask = df['Main Part Num'].str.contains(q, case=False, na=False) | df['Subpart Part Num'].str.contains(q, case=False, na=False)
             res = df[mask]
@@ -138,6 +152,12 @@ if uploaded_file is not None:
                 for _, r in res.iterrows():
                     st.info(f"**{r['Subpart Part Num']}** → 当前工序: {r['Current Operation']}  |  ETA: {r['ETA'].strftime('%Y-%m-%d')}  |  {r['Status']}")
             else:
-                st.warning("未找到")
+                st.warning("未找到匹配的 Part")
 else:
-    st.info("👈 请从左侧上传 Excel 文件（BAQ Report）")
+    st.info("👈 请从左侧上传 Epicor 导出的 Excel 文件（BAQ Report）")
+    st.markdown("""
+    ### 📌 使用说明
+    1. 从 Epicor 导出 BAQ Report（格式需包含 `Main Part Num`, `Subpart Part Num`, `Step 1~20`, `Current Operation` 等列）
+    2. 确保表头在第6行（代码已自动处理）
+    3. 上传文件，系统将自动解析并计算 ETA
+    """)
