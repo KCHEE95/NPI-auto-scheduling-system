@@ -314,11 +314,13 @@ def create_gantt_for_job(df, job_base, today):
     )
     
     # 修改 X 轴：移到顶部，并设置刻度格式（显示日期、月份缩写、周数）
-    fig.update_xaxis(
+    fig.update_layout(
+    xaxis=dict(
         side='top',
-        tickformat='%b %d<br>Week %W',   # 例如：Apr 05<br>Week 14
+        tickformat='%b %d\nWeek %W',
         title='Date / Week'
     )
+)
     
     # Y 轴反转，让第一个任务在最上面
     fig.update_yaxes(autorange="reversed")
