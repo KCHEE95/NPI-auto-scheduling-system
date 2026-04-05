@@ -29,12 +29,26 @@ st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, 
 
 # ========== Configuration ==========
 LEAD_TIME = {
-    'W-CDS-A': 1.0, 'W-LWD': 1.0, 'M-LC-FBR': 2.0, 'P-DB': 0.5,
-    'M-BD': 1.5, 'P-GRD': 1.0, 'P-DGR': 0.8, 'P-MK-A': 0.5,
-    'F-PT': 0.3, 'P-DMK-A': 0.4, 'F-INK': 0.2, '2-PK-A': 0.3,
-    'N-MC': 0.7, 'P-TU-A': 0.6, 'D-TAP-A': 0.4, 'P-PCKLNG': 0.5,
-    'F-NPV1': 7, 'ASSY-A': 1.0, 'P-BF': 0.4, 'C-SAW': 0.6,
-    'DEFAULT': 1.0
+    'M-LC-FBR': 0.1,
+    'P-DB': 0.05,
+    'N-MC': 0.3,
+    'P-TU-A': 0.1,
+    'D-TAP-A': 0.1,
+    'P-PCKLNG': 0.1,
+    'ASSY-A': 0.1,
+    'P-BF': 0.1,
+    'W-CDS-A': 0.1,
+    'P-DGR': 0.1,
+    'W-LWD': 0.1,
+    'M-BD': 0.1,
+    'P-GRD': 0.1,
+    'P-MK-A': 0.1,
+    'P-DMK-A': 0.1,
+    'F-INK': 0.1,
+    '2-PK-A': 0.1,
+    'C-SAW': 0.1,
+    'F-NPV1': 7.0,      # 外包工序，固定7天
+    'DEFAULT': 1.0      # 未知工序默认1天（10小时）
 }
 
 OP_TO_DEPT = {
