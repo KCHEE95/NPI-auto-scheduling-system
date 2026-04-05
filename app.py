@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.express as px
+from io import BytesIO
 
 # ========== Password protection ==========
 def check_password():
@@ -23,7 +24,7 @@ if not check_password():
 
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
-st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, and part images")
+st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, and task completion")
 
 # ========== Configuration ==========
 LEAD_TIME = {
@@ -85,7 +86,7 @@ def load_excel(file):
         st.error("Excel missing 'Subpart Part Num' column")
         st.stop()
     
-    # Ensure required columns exist (create empty if missing)
+    # Ensure required columns exist
     for col in ['JobNum/Asm', 'Nesting Num', 'Exwork Date', 'Subpart Qty',
                 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10', 'Subpart Part Image']:
         if col not in df.columns:
@@ -125,63 +126,67 @@ def get_dept_from_op(op):
         return 'Unassigned'
     return OP_TO_DEPT.get(op, OP_TO_DEPT['DEFAULT'])
 
-def display_image(image_value, width=60):
-    """Try to display image from URL or file path; if not possible, show text."""
-    if pd.isna(image_value) or image_value == '':
-        return "No image"
-    # If it looks like a URL (starts with http), use st.image
-    if isinstance(image_value, str) and (image_value.startswith('http://') or image_value.startswith('https://')):
-        try:
-            st.image(image_value, width=width)
-            return ""
-        except:
-            return f"Image URL: {image_value[:30]}..."
+def update_task_to_next_operation(df, index):
+    """将指定行的任务推进到下一个工序，返回更新后的 DataFrame"""
+    row = df.loc[index]
+    steps = row['_steps']
+    current_op = row['Current Operation']
+    if pd.isna(current_op) or current_op == '':
+        # 没有当前工序，无法推进
+        return df, False, "No current operation"
+    if current_op not in steps:
+        return df, False, f"Current operation '{current_op}' not found in step chain"
+    current_idx = steps.index(current_op)
+    if current_idx + 1 >= len(steps):
+        # 已经是最后一步，标记为完成
+        df.at[index, 'Current Operation'] = 'COMPLETED'
+        df.at[index, 'Current Dept'] = 'Completed'
+        return df, True, "Task completed (no next operation)"
     else:
-        # Could be a local file path; but in cloud environment unlikely to work
-        return f"File: {str(image_value)[:30]}..."
+        next_op = steps[current_idx + 1]
+        df.at[index, 'Current Operation'] = next_op
+        df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
+        # 重新计算 ETA
+        df.at[index, 'ETA'] = compute_eta(df.loc[index], datetime.now().date())
+        return df, True, f"Moved to next operation: {next_op}"
 
 # ========== Main interface ==========
 uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
-    df = load_excel(uploaded_file)
+    # Load data (cached, but we will use session_state for modifications)
+    if 'original_df' not in st.session_state or st.sidebar.button("Reload original file"):
+        df = load_excel(uploaded_file)
+        # Extract step sequences
+        df['_steps'] = df.apply(extract_step_sequence, axis=1)
+        # Calculate initial ETA
+        today = datetime.now().date()
+        df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
+        df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
+        df['Status'] = df['ETA'].apply(lambda x: '⚠️ Delayed' if x < today else '✅ On track')
+        # Convert Exwork Date
+        if 'Exwork Date' in df.columns:
+            df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
+        st.session_state['original_df'] = df
+        st.session_state['df'] = df.copy()
+        st.session_state['file_name'] = uploaded_file.name
+        st.rerun()
+    else:
+        df = st.session_state['df']
+    
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
-    df['_steps'] = df.apply(extract_step_sequence, axis=1)
-    today = datetime.now().date()
-    df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
-    df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
-    df['Status'] = df['ETA'].apply(lambda x: '⚠️ Delayed' if x < today else '✅ On track')
-    
-    # Convert Exwork Date to datetime if possible
-    if 'Exwork Date' in df.columns:
-        df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
-    
+    # ========== Tabs ==========
     tab1, tab2, tab3, tab4 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query"])
     
     with tab1:
         st.subheader("Real-time status of all subparts")
-        # Define columns to show (including new ones)
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
                      'Current Operation', 'Current Dept', 'ETA', 'Status', 'Assigned Eng']
         extra_cols = ['Exwork Date', 'Subpart Qty', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10']
-        # Only include columns that exist in df
         display_cols = [c for c in base_cols + extra_cols if c in df.columns]
         df_display = df[display_cols].sort_values('ETA')
-        
-        # For image column, we need custom display - use columns layout
-        if 'Subpart Part Image' in df.columns:
-            # Show main table without image column, then add image column separately using st.columns
-            st.dataframe(df_display, use_container_width=True, height=400)
-            st.subheader("Subpart Images")
-            # Show images in a grid
-            img_cols = st.columns(min(4, len(df)))
-            for idx, (_, row) in enumerate(df.iterrows()):
-                with img_cols[idx % 4]:
-                    st.caption(f"**{row['Subpart Part Num']}**")
-                    display_image(row['Subpart Part Image'], width=120)
-        else:
-            st.dataframe(df_display, use_container_width=True, height=500)
+        st.dataframe(df_display, use_container_width=True, height=500)
         
         with st.expander("🔍 View full operation chain for each subpart"):
             for _, row in df.iterrows():
@@ -191,17 +196,70 @@ if uploaded_file is not None:
     
     with tab2:
         st.subheader("Department to-do list")
+        # Department filter
         dept_list = sorted(df['Current Dept'].unique())
-        selected_dept = st.selectbox("Select department", dept_list)
-        dept_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
-                     'Current Operation', 'ETA', 'Status', 'Assigned Eng',
-                     'Exwork Date', 'Subpart Qty', 'Mtl 10']
-        dept_cols = [c for c in dept_cols if c in df.columns]
-        dept_df = df[df['Current Dept'] == selected_dept][dept_cols].sort_values('ETA')
-        st.dataframe(dept_df, use_container_width=True)
-        overdue = dept_df[dept_df['Status'] == '⚠️ Delayed']
-        if not overdue.empty:
-            st.warning(f"⚠️ {len(overdue)} potentially delayed task(s) in this department")
+        selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
+        
+        # Additional filters: JobNum/Asm and Nesting Num
+        col1, col2 = st.columns(2)
+        with col1:
+            job_filter = st.text_input("Filter by JobNum/Asm (partial match)", key="job_filter")
+        with col2:
+            nest_filter = st.text_input("Filter by Nesting Num (partial match)", key="nest_filter")
+        
+        # Apply filters
+        filtered_df = df[df['Current Dept'] == selected_dept]
+        if job_filter:
+            filtered_df = filtered_df[filtered_df['JobNum/Asm'].astype(str).str.contains(job_filter, case=False, na=False)]
+        if nest_filter:
+            filtered_df = filtered_df[filtered_df['Nesting Num'].astype(str).str.contains(nest_filter, case=False, na=False)]
+        
+        # Display tasks with buttons
+        if filtered_df.empty:
+            st.info("No tasks match the filters.")
+        else:
+            # Prepare columns to show
+            cols_to_show = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
+                            'Current Operation', 'ETA', 'Status', 'Assigned Eng',
+                            'Exwork Date', 'Subpart Qty', 'Mtl 10']
+            cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
+            
+            # Use a form to batch button clicks (or just iterate)
+            for idx, row in filtered_df.iterrows():
+                with st.container():
+                    col_a, col_b = st.columns([0.85, 0.15])
+                    with col_a:
+                        # Show row data as a mini table
+                        row_data = {col: row[col] for col in cols_to_show}
+                        st.write(pd.DataFrame([row_data]).T)
+                    with col_b:
+                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}"):
+                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx)
+                            if success:
+                                st.session_state['df'] = updated_df
+                                st.success(f"Task {row['Subpart Part Num']}: {message}")
+                                st.rerun()
+                            else:
+                                st.error(f"Failed: {message}")
+                st.divider()
+        
+        # Export modified Excel
+        if st.button("📥 Download updated Excel (with progress changes)"):
+            # Prepare output file (drop the '_steps' column before saving)
+            output_df = st.session_state['df'].drop(columns=['_steps'], errors='ignore')
+            # Convert datetime columns to string for Excel compatibility
+            for col in ['ETA', 'Exwork Date']:
+                if col in output_df.columns:
+                    output_df[col] = output_df[col].astype(str)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                output_df.to_excel(writer, index=False, sheet_name='UpdatedSchedule')
+            st.download_button(
+                label="Download Excel",
+                data=output.getvalue(),
+                file_name=f"updated_{st.session_state['file_name']}",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
     with tab3:
         st.subheader("Department capacity load")
@@ -241,9 +299,6 @@ if uploaded_file is not None:
                             f"- Subpart Qty: {row.get('Subpart Qty', '')}  \n"
                             f"- Material: {row.get('Mtl 10', '')}  \n"
                             f"- Status: {row['Status']}")
-                    # Show image if available
-                    if 'Subpart Part Image' in row and pd.notna(row['Subpart Part Image']) and row['Subpart Part Image'] != '':
-                        st.image(row['Subpart Part Image'], width=150)
             else:
                 st.warning("No matching Part or Job found")
 else:
@@ -252,6 +307,9 @@ else:
     ### 📌 Instructions
     1. Export BAQ Report from Epicor, ensure the header is on row 6 (code handles this automatically)
     2. Must include columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20` (or `Step1`~`Step20`), `Current Operation`
-    3. Recommended additional columns: `Exwork Date`, `Subpart Qty`, `Subpart 2D Rev`, `Subpart KK Rev`, `Mtl 10`, `Subpart Part Image` (URL or file path)
-    4. After upload, the system will display all fields and attempt to show part images if they are web URLs.
+    3. Recommended additional columns: `Exwork Date`, `Subpart Qty`, `Subpart 2D Rev`, `Subpart KK Rev`, `Mtl 10`
+    4. In **Department Workbench**, you can now:
+       - Filter by **JobNum/Asm** and **Nesting Num**
+       - Click **Complete & Next** to advance a task to the next operation
+       - Download the updated Excel file to persist changes
     """)
