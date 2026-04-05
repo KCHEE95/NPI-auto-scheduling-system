@@ -4,6 +4,7 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.express as px
 from io import BytesIO
+import re
 
 # ========== Password protection ==========
 def check_password():
@@ -141,7 +142,6 @@ def get_dept_from_op(op):
     return OP_TO_DEPT.get(op, OP_TO_DEPT['DEFAULT'])
 
 def get_planned_date(row):
-    """Return First Process Plan Date if exists, else Order Date, else empty"""
     if 'First Process Plan Date' in row and pd.notna(row['First Process Plan Date']) and row['First Process Plan Date'] != '':
         return pd.to_datetime(row['First Process Plan Date'], errors='coerce')
     elif 'Order Date' in row and pd.notna(row['Order Date']) and row['Order Date'] != '':
@@ -149,7 +149,40 @@ def get_planned_date(row):
     else:
         return pd.NaT
 
-def update_task_to_next_operation(df, index):
+def get_job_base(job_num):
+    """从 JobNum/Asm 提取基础编号，例如 '525651-0' -> '525651'"""
+    if pd.isna(job_num) or job_num == '':
+        return ''
+    # 使用正则去掉最后的 -数字
+    match = re.match(r'^([^-]+)', str(job_num))
+    return match.group(1) if match else str(job_num)
+
+def update_main_part_eta(df, today):
+    """
+    对于每个 Job 基础编号，找到主部件（JobNum/Asm 以 '-0' 结尾的行），
+    将其 ETA 更新为该 Job 下所有行的最大 ETA。
+    同时更新其 Status 和 Current Dept（如果主部件当前工序不是 COMPLETED，部门保持不变）。
+    """
+    # 添加辅助列：Job 基础编号
+    df['_job_base'] = df['JobNum/Asm'].apply(get_job_base)
+    # 标记是否为主部件（以 -0 结尾）
+    df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
+    
+    # 计算每个 Job 基础编号的最大 ETA
+    group_max_eta = df.groupby('_job_base')['ETA'].max()
+    
+    # 更新主部件行的 ETA 和 Status
+    for idx, row in df[df['_is_main']].iterrows():
+        job_base = row['_job_base']
+        if job_base in group_max_eta:
+            new_eta = group_max_eta[job_base]
+            df.at[idx, 'ETA'] = new_eta
+            df.at[idx, 'Status'] = '✅ On track' if new_eta >= today else '⚠️ Delayed'
+            # 注意：主部件的部门可能要根据其 Current Operation 重新映射（不变）
+    return df
+
+def update_task_to_next_operation(df, index, today):
+    """推进任务，并重新计算相关主部件的 ETA"""
     row = df.loc[index]
     steps = row['_steps']
     current_op = row['Current Operation']
@@ -162,15 +195,32 @@ def update_task_to_next_operation(df, index):
         df.at[index, 'Current Operation'] = 'COMPLETED'
         df.at[index, 'Current Dept'] = 'Completed'
         df.at[index, 'Next Operation'] = ''
-        df.at[index, 'ETA'] = datetime.now().date()
-        return df, True, "Task completed (no next operation)"
+        df.at[index, 'ETA'] = today
     else:
         next_op = steps[current_idx + 1]
         df.at[index, 'Current Operation'] = next_op
         df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
         df.at[index, 'Next Operation'] = get_next_operation(next_op, steps)
-        df.at[index, 'ETA'] = compute_eta(df.loc[index], datetime.now().date())
-        return df, True, f"Moved to next operation: {next_op}"
+        df.at[index, 'ETA'] = compute_eta(df.loc[index], today)
+    
+    # 更新该任务的状态
+    df.at[index, 'Status'] = '✅ On track' if df.at[index, 'ETA'] >= today else '⚠️ Delayed'
+    
+    # 重新计算该任务所属 Job 的主部件 ETA（如果有）
+    job_base = get_job_base(df.at[index, 'JobNum/Asm'])
+    if job_base:
+        # 找到同一 Job 下的所有行
+        job_mask = df['_job_base'] == job_base
+        # 重新计算该组的最大 ETA
+        max_eta = df.loc[job_mask, 'ETA'].max()
+        # 找到主部件行（_is_main = True）并更新
+        main_mask = job_mask & df['_is_main']
+        if main_mask.any():
+            main_idx = df[main_mask].index[0]
+            df.at[main_idx, 'ETA'] = max_eta
+            df.at[main_idx, 'Status'] = '✅ On track' if max_eta >= today else '⚠️ Delayed'
+    
+    return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 # ========== Main interface ==========
 uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
@@ -182,12 +232,16 @@ if uploaded_file is not None:
         today = datetime.now().date()
         df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
         df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
-        # Status: On track if ETA >= today, else Delayed
-        df['Status'] = df['ETA'].apply(lambda x: '✅ On track' if x >= today else '⚠️ Delayed')
         df['Next Operation'] = df.apply(lambda row: get_next_operation(row['Current Operation'], row['_steps']), axis=1)
-        # Planned Date
         df['Planned Date'] = df.apply(get_planned_date, axis=1)
-        # Convert Exwork Date
+        # 添加辅助列
+        df['_job_base'] = df['JobNum/Asm'].apply(get_job_base)
+        df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
+        # 先计算初始状态（基于自身工序）
+        df['Status'] = df['ETA'].apply(lambda x: '✅ On track' if x >= today else '⚠️ Delayed')
+        # 然后更新主部件的 ETA（基于同 Job 所有行的最大 ETA）
+        df = update_main_part_eta(df, today)
+        # 转换 Exwork Date
         if 'Exwork Date' in df.columns:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
         st.session_state['original_df'] = df
@@ -203,13 +257,12 @@ if uploaded_file is not None:
     
     with tab1:
         st.subheader("Real-time status of all subparts")
-        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed but task not completed.")
+        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed but task not completed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), the Est. Finish Date is calculated as the latest finish date among all its subparts.")
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
                      'Current Operation', 'Next Operation', 'Current Dept', 
                      'Planned Date', 'ETA', 'Status', 'Assigned Eng']
         extra_cols = ['Exwork Date', 'Subpart Qty', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10']
         display_cols = [c for c in base_cols + extra_cols if c in df.columns]
-        # Rename ETA to 'Est. Finish Date' for display
         df_display = df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}).sort_values('Est. Finish Date')
         st.dataframe(df_display, use_container_width=True, height=500)
         
@@ -221,7 +274,7 @@ if uploaded_file is not None:
     
     with tab2:
         st.subheader("Department to-do list")
-        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts of the same job number.")
+        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts of the same job number. Main part's Est. Finish Date is auto-calculated as the latest among its subparts.")
         dept_list = sorted(df['Current Dept'].unique())
         selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
         
@@ -244,13 +297,11 @@ if uploaded_file is not None:
                             'Current Operation', 'Next Operation', 'Planned Date', 'ETA', 'Status', 'Assigned Eng',
                             'Exwork Date', 'Subpart Qty', 'Mtl 10']
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
-            # Rename ETA for display
             for idx, row in filtered_df.iterrows():
                 with st.container():
                     col_a, col_b = st.columns([0.85, 0.15])
                     with col_a:
                         row_data = {col: row[col] for col in cols_to_show}
-                        # Convert ETA to string for display
                         if 'ETA' in row_data:
                             row_data['Est. Finish Date'] = row_data.pop('ETA').strftime('%Y-%m-%d') if pd.notna(row_data['ETA']) else ''
                         if 'Planned Date' in row_data and pd.notna(row_data['Planned Date']):
@@ -258,7 +309,8 @@ if uploaded_file is not None:
                         st.write(pd.DataFrame([row_data]).T)
                     with col_b:
                         if st.button(f"✅ Complete & Next", key=f"complete_{idx}"):
-                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx)
+                            today = datetime.now().date()
+                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
                             if success:
                                 st.session_state['df'] = updated_df
                                 st.success(f"Task {row['Subpart Part Num']}: {message}")
@@ -268,7 +320,7 @@ if uploaded_file is not None:
                 st.divider()
         
         if st.button("📥 Download updated Excel (with progress changes)"):
-            output_df = st.session_state['df'].drop(columns=['_steps'], errors='ignore')
+            output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
             for col in ['ETA', 'Exwork Date', 'Planned Date']:
                 if col in output_df.columns:
                     output_df[col] = output_df[col].astype(str)
@@ -332,7 +384,8 @@ else:
     1. Export BAQ Report from Epicor, ensure the header is on row 6 (code handles this automatically)
     2. Must include columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20` (or `Step1`~`Step20`), `Current Operation`
     3. The system automatically computes `Next Operation`, `Planned Date` (from `First Process Plan Date` or `Order Date`), and `Est. Finish Date` (ETA).
-    4. **Status**: ✅ On track = Est. Finish Date is today or in the future; ⚠️ Delayed = Est. Finish Date has passed.
-    5. In **Department Workbench**, use filters and click **Complete & Next** to advance tasks.
-    6. Download the updated Excel to persist changes.
+    4. **For main parts (JobNum/Asm ending with -0)**, the Est. Finish Date is calculated as the latest finish date among all its subparts (including itself).
+    5. **Status**: ✅ On track = Est. Finish Date is today or in the future; ⚠️ Delayed = Est. Finish Date has passed.
+    6. In **Department Workbench**, use filters and click **Complete & Next** to advance tasks. The main part's ETA will automatically update.
+    7. Download the updated Excel to persist changes.
     """)
