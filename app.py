@@ -66,23 +66,26 @@ def load_excel(file):
         st.error("Excel 缺少 'Main Part Num' 列")
         st.stop()
     
-    # 关键：只保留 Subpart Part Num 非空的行（真正的子部件）
+    # 只保留 Subpart Part Num 非空的行
     if 'Subpart Part Num' in df.columns:
         df = df[df['Subpart Part Num'].notna() & (df['Subpart Part Num'] != '')]
     else:
         st.error("Excel 缺少 'Subpart Part Num' 列")
         st.stop()
     
+    # 确保 JobNum/Asm 和 Nesting Num 列存在（如果缺失则创建空列）
+    if 'JobNum/Asm' not in df.columns:
+        df['JobNum/Asm'] = ''
+    if 'Nesting Num' not in df.columns:
+        df['Nesting Num'] = ''
+    
     return df
 
 def extract_step_sequence(row):
     """从 Step 列提取工序列表，兼容 'Step 1' 和 'Step1' 两种列名"""
     steps = []
-    # 先判断列名是 'Step 1' 还是 'Step1'
     step_col_candidates = [f'Step {i}' for i in range(1, 21)]
-    # 检查第一个候选列是否存在
     if step_col_candidates[0] not in row.index:
-        # 尝试无空格版本
         step_col_candidates = [f'Step{i}' for i in range(1, 21)]
     
     for col in step_col_candidates:
@@ -95,15 +98,12 @@ def compute_eta(row, today):
     current_op = row.get('Current Operation')
     steps = row['_steps']
     
-    # 没有步骤链：给默认 7 天
     if not steps:
         return today + timedelta(days=7)
     
-    # 当前工序为空或不在步骤链中：从第一步开始算全部步骤
     if pd.isna(current_op) or current_op == '' or current_op not in steps:
         remaining_days = sum(LEAD_TIME.get(op, LEAD_TIME['DEFAULT']) for op in steps)
     else:
-        # 找到当前工序的位置，累加后续步骤
         try:
             idx = steps.index(current_op)
         except ValueError:
@@ -137,7 +137,7 @@ if uploaded_file is not None:
     # 映射部门
     df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
     
-    # 状态标记（基于 ETA 与今天比较）
+    # 状态标记
     df['Status'] = df['ETA'].apply(lambda x: '⚠️ 可能延期' if x < today else '✅ 正常')
     
     # ========== 多页面 ==========
@@ -145,29 +145,29 @@ if uploaded_file is not None:
     
     with tab1:
         st.subheader("所有子部件实时状态")
-        display_cols = ['Main Part Num', 'Subpart Part Num', 'Current Operation', 'Current Dept', 'ETA', 'Status', 'Assigned Eng']
+        # 增加 JobNum/Asm 和 Nesting Num 列
+        display_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num', 
+                        'Current Operation', 'Current Dept', 'ETA', 'Status', 'Assigned Eng']
         display_cols = [c for c in display_cols if c in df.columns]
-        # 按 ETA 排序，紧急的在前
         df_display = df[display_cols].sort_values('ETA')
         st.dataframe(df_display, use_container_width=True, height=500)
         
-        # 显示工序链示例（可展开）
         with st.expander("🔍 查看每个子部件的完整工序链"):
             for _, row in df.iterrows():
                 if row['_steps']:
                     steps_str = " → ".join(row['_steps'])
-                    st.write(f"**{row['Subpart Part Num']}** : {steps_str}")
+                    st.write(f"**{row['Subpart Part Num']}** (Job: {row['JobNum/Asm']}, Nest: {row['Nesting Num']}) : {steps_str}")
     
     with tab2:
         st.subheader("按部门查看待办事项")
         dept_list = sorted(df['Current Dept'].unique())
         selected_dept = st.selectbox("选择部门", dept_list)
-        dept_df = df[df['Current Dept'] == selected_dept][
-            ['Main Part Num', 'Subpart Part Num', 'Current Operation', 'ETA', 'Status', 'Assigned Eng']
-        ].sort_values('ETA')
+        dept_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num', 
+                     'Current Operation', 'ETA', 'Status', 'Assigned Eng']
+        dept_cols = [c for c in dept_cols if c in df.columns]
+        dept_df = df[df['Current Dept'] == selected_dept][dept_cols].sort_values('ETA')
         st.dataframe(dept_df, use_container_width=True)
         
-        # 超期提醒
         overdue = dept_df[dept_df['Status'] == '⚠️ 可能延期']
         if not overdue.empty:
             st.warning(f"⚠️ 该部门有 {len(overdue)} 个可能延期的任务")
@@ -192,28 +192,32 @@ if uploaded_file is not None:
     
     with tab4:
         st.subheader("销售快速查询")
-        search_term = st.text_input("输入 Main Part Num 或 Subpart Part Num（支持模糊匹配）")
+        search_term = st.text_input("输入 Main Part Num、Subpart Part Num 或 JobNum/Asm（支持模糊匹配）")
         if search_term:
-            mask = df['Main Part Num'].str.contains(search_term, case=False, na=False) | \
-                   df['Subpart Part Num'].str.contains(search_term, case=False, na=False)
+            mask = (df['Main Part Num'].str.contains(search_term, case=False, na=False) |
+                    df['Subpart Part Num'].str.contains(search_term, case=False, na=False) |
+                    df['JobNum/Asm'].astype(str).str.contains(search_term, case=False, na=False))
             result = df[mask]
             if not result.empty:
                 for _, row in result.iterrows():
                     eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else '未知'
                     st.info(f"**{row['Subpart Part Num']}**  \n"
+                            f"- JobNum/Asm: {row['JobNum/Asm']}  \n"
+                            f"- Nesting Num: {row['Nesting Num']}  \n"
                             f"- 当前工序: {row['Current Operation']}  \n"
                             f"- 所在部门: {row['Current Dept']}  \n"
                             f"- 预计完成日期: {eta_str}  \n"
                             f"- 状态: {row['Status']}")
             else:
-                st.warning("未找到匹配的 Part")
+                st.warning("未找到匹配的 Part 或 Job")
 else:
     st.info("👈 请从左侧上传 Epicor 导出的 Excel 文件（BAQ Report）")
     st.markdown("""
     ### 📌 使用说明
     1. 从 Epicor 导出 BAQ Report，确保表头在第 6 行（代码已自动处理）
-    2. 必须包含列：`Main Part Num`, `Subpart Part Num`, `Step 1` ~ `Step 20`（或 `Step1`~`Step20`）, `Current Operation`
-    3. 上传后系统会自动：
+    2. 必须包含列：`Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`（或 `Step1`~`Step20`）, `Current Operation`
+    3. 强烈建议包含 `JobNum/Asm` 和 `Nesting Num`，以便生产部门使用
+    4. 上传后系统会自动：
        - 过滤掉没有子部件编号的空行
        - 提取每个子部件的完整工序链
        - 根据当前工序和标准工时计算 ETA
