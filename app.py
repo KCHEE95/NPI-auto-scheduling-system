@@ -440,7 +440,8 @@ if uploaded_file is not None:
                             'Current Operation', 'Next Operation', 'Planned Date', 'ETA', 'Status', 'Assigned Eng',
                             'Exwork Date', 'Subpart Qty', 'Mtl 10']
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
-                       for idx, row in filtered_df.iterrows():
+            
+            for idx, row in filtered_df.iterrows():
                 # 计算进度百分比
                 steps = row['_steps']
                 current_op = row['Current Operation']
