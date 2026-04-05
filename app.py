@@ -6,6 +6,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 import re
+import json
 
 # ========== Password protection ==========
 def check_password():
@@ -26,10 +27,10 @@ if not check_password():
 
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
-st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, and alerts")
+st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, alerts, and auto-calibration")
 
 # ========== Configuration ==========
-LEAD_TIME = {
+DEFAULT_LEAD_TIME = {
     'M-LC-FBR': 0.1,
     'P-DB': 0.05,
     'N-MC': 0.3,
@@ -51,6 +52,16 @@ LEAD_TIME = {
     'F-NPV1': 7.0,
     'DEFAULT': 1.0
 }
+
+# 初始化校准覆盖字典
+if 'lead_time_override' not in st.session_state:
+    st.session_state.lead_time_override = {}
+
+def get_lead_time(op):
+    """优先返回校准后的值，否则返回默认值"""
+    if op in st.session_state.lead_time_override:
+        return st.session_state.lead_time_override[op]
+    return DEFAULT_LEAD_TIME.get(op, DEFAULT_LEAD_TIME['DEFAULT'])
 
 OP_TO_DEPT = {
     'P-DB': 'Deburr',
@@ -138,7 +149,7 @@ def compute_eta(row, today):
     if not steps:
         return today + timedelta(days=7)
     if pd.isna(current_op) or current_op == '' or current_op not in steps:
-        remaining_days = sum(LEAD_TIME.get(op, LEAD_TIME['DEFAULT']) for op in steps)
+        remaining_days = sum(get_lead_time(op) for op in steps)
     else:
         try:
             idx = steps.index(current_op)
@@ -146,7 +157,7 @@ def compute_eta(row, today):
             idx = -1
         remaining_days = 0
         for op in steps[idx+1:]:
-            remaining_days += LEAD_TIME.get(op, LEAD_TIME['DEFAULT'])
+            remaining_days += get_lead_time(op)
     remaining_days = max(remaining_days, 0.5)
     return today + timedelta(days=remaining_days)
 
@@ -156,7 +167,7 @@ def compute_remaining_days(row, today):
     if not steps:
         return 7.0
     if pd.isna(current_op) or current_op == '' or current_op not in steps:
-        remaining_days = sum(LEAD_TIME.get(op, LEAD_TIME['DEFAULT']) for op in steps)
+        remaining_days = sum(get_lead_time(op) for op in steps)
     else:
         try:
             idx = steps.index(current_op)
@@ -164,7 +175,7 @@ def compute_remaining_days(row, today):
             idx = -1
         remaining_days = 0
         for op in steps[idx+1:]:
-            remaining_days += LEAD_TIME.get(op, LEAD_TIME['DEFAULT'])
+            remaining_days += get_lead_time(op)
     return max(remaining_days, 0.5)
 
 def get_dept_from_op(op):
@@ -331,6 +342,25 @@ def create_gantt_for_job(df, job_base, today):
     )
     return fig
 
+# ========== Sidebar for calibration management ==========
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚙️ Auto-Calibration")
+if st.sidebar.button("📥 Export Calibration (JSON)"):
+    calib_json = json.dumps(st.session_state.lead_time_override, indent=2)
+    st.sidebar.download_button("Download", calib_json, file_name="lead_time_calib.json", mime="application/json")
+
+calib_file = st.sidebar.file_uploader("📂 Load Calibration JSON", type=["json"])
+if calib_file:
+    calib_data = json.load(calib_file)
+    st.session_state.lead_time_override = calib_data
+    st.sidebar.success("Calibration loaded! Please re-upload the Excel or refresh.")
+    st.rerun()
+
+if st.sidebar.button("🔄 Reset All Calibrations"):
+    st.session_state.lead_time_override = {}
+    st.sidebar.success("Reset to default LEAD_TIME")
+    st.rerun()
+
 # ========== Main interface ==========
 uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
 
@@ -387,7 +417,7 @@ if uploaded_file is not None:
     
     with tab2:
         st.subheader("Department to-do list")
-        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.")
+        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.\n\n📊 **Calibration**: Enter actual hours and click Calibrate to adjust future ETAs.")
         dept_list = sorted(df['Current Dept'].unique())
         selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
         
@@ -412,7 +442,8 @@ if uploaded_file is not None:
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
             for idx, row in filtered_df.iterrows():
                 with st.container():
-                    col_a, col_b = st.columns([0.85, 0.15])
+                    # 三列布局：任务信息 | Complete按钮 | 校准
+                    col_a, col_b, col_c = st.columns([0.7, 0.15, 0.15])
                     with col_a:
                         row_data = {col: row[col] for col in cols_to_show}
                         if 'ETA' in row_data:
@@ -430,6 +461,24 @@ if uploaded_file is not None:
                                 st.rerun()
                             else:
                                 st.error(f"Failed: {message}")
+                    with col_c:
+                        op = row['Current Operation']
+                        if op not in ['COMPLETED', '']:
+                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed")
+                            if st.button(f"Calibrate", key=f"calib_{idx}"):
+                                if actual_hours > 0:
+                                    old_days = get_lead_time(op)
+                                    old_hours = old_days * 10
+                                    new_hours = 0.7 * old_hours + 0.3 * actual_hours
+                                    new_days = new_hours / 10
+                                    st.session_state.lead_time_override[op] = new_days
+                                    st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
+                                    # 重新加载数据以更新 ETA（需要重新计算）
+                                    st.rerun()
+                                else:
+                                    st.warning("Enter actual hours first")
+                        else:
+                            st.write("Completed")
                 st.divider()
         
         if st.button("📥 Download updated Excel (with progress changes)"):
@@ -554,13 +603,11 @@ if uploaded_file is not None:
             st.success("🎉 No delayed tasks! All on track.")
         else:
             st.error(f"🚨 {len(delayed_df)} task(s) are delayed.")
-            # 按部门统计
             dept_delay = delayed_df['Current Dept'].value_counts().reset_index()
             dept_delay.columns = ['Department', 'Delayed Count']
             fig_delay = px.bar(dept_delay, x='Department', y='Delayed Count', title='Delayed Tasks by Department', color='Delayed Count')
             st.plotly_chart(fig_delay, use_container_width=True)
             
-            # 延期详情列表
             st.subheader("Delayed Task List")
             delay_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'Current Operation', 'ETA', 'Planned Date']
             delay_cols = [c for c in delay_cols if c in delayed_df.columns]
@@ -569,7 +616,6 @@ if uploaded_file is not None:
             delayed_display = delayed_df[delay_cols + ['Delayed Days']].sort_values('Delayed Days', ascending=False)
             st.dataframe(delayed_display, use_container_width=True)
             
-            # 按 Job 汇总
             st.subheader("Job Summary with Delays")
             job_delay = delayed_df.groupby('_job_base').size().reset_index(name='Delayed Subparts')
             st.dataframe(job_delay, use_container_width=True)
@@ -581,6 +627,7 @@ else:
     2. Required columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`, `Current Operation`.
     3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, etc.
     4. Use **Complete & Next** buttons in Department Workbench to advance tasks.
-    5. Download updated Excel to persist changes.
-    6. Check **Delayed Alerts** tab for overdue tasks.
+    5. **Auto-Calibration**: Enter actual hours (in hours) and click "Calibrate" to adjust future ETAs. Export/Import calibration JSON for persistence.
+    6. Download updated Excel to persist progress changes.
+    7. Check **Delayed Alerts** tab for overdue tasks.
     """)
