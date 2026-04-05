@@ -28,9 +28,10 @@ if not check_password():
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
 st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, alerts, and auto-calibration")
+
+# ========== CSS for warm beige cards ==========
 st.markdown("""
 <style>
-    /* 卡片容器：暖米色背景，圆角，阴影，边框 */
     .stExpander {
         background-color: #fef9e8 !important;
         border-radius: 16px !important;
@@ -38,7 +39,6 @@ st.markdown("""
         margin-bottom: 16px !important;
         border: 1px solid #fde6b6 !important;
     }
-    /* 标题栏：稍深暖米色，圆角仅顶部 */
     .stExpander summary {
         background-color: #fef0d5 !important;
         border-radius: 16px 16px 0 0 !important;
@@ -48,17 +48,14 @@ st.markdown("""
         font-size: 1rem !important;
         border-bottom: 1px solid #fde6b6 !important;
     }
-    /* 标题栏 hover 效果 */
     .stExpander summary:hover {
         background-color: #fde6b6 !important;
     }
-    /* 卡片内所有文本强制深色（棕色系） */
     .stExpander, .stExpander p, .stExpander span, .stExpander label, 
     .stExpander div, .stExpander .stMarkdown, .stExpander .stMetric label,
     .stExpander .stMetric .stMetricValue, .stExpander .stCaption {
         color: #3a3530 !important;
     }
-    /* 指标卡片的数值和标签额外强调 */
     .stExpander .stMetric label {
         color: #6b5e4e !important;
         font-size: 0.8rem !important;
@@ -68,7 +65,6 @@ st.markdown("""
         font-weight: 700 !important;
         font-size: 1.2rem !important;
     }
-    /* 按钮样式：浅米色背景，深色文字 */
     .stExpander button {
         color: #3a3530 !important;
         background-color: #fef0d5 !important;
@@ -80,7 +76,6 @@ st.markdown("""
         background-color: #fde6b6 !important;
         border-color: #d4bc8a !important;
     }
-    /* 数字输入框背景和文字 */
     .stExpander .stNumberInput input {
         background-color: #ffffff !important;
         color: #2d2a24 !important;
@@ -91,13 +86,11 @@ st.markdown("""
         border-color: #d4bc8a !important;
         box-shadow: 0 0 0 1px #d4bc8a !important;
     }
-    /* 成功/错误/警告消息框背景 */
     .stExpander .stAlert {
         background-color: #fefcf5 !important;
         border-left-color: #d4bc8a !important;
         color: #3a3530 !important;
     }
-    /* 步骤指示器使用的 emoji 无需额外样式，但保持可见 */
 </style>
 """, unsafe_allow_html=True)
 
@@ -125,12 +118,10 @@ DEFAULT_LEAD_TIME = {
     'DEFAULT': 1.0
 }
 
-# 初始化校准覆盖字典
 if 'lead_time_override' not in st.session_state:
     st.session_state.lead_time_override = {}
 
 def get_lead_time(op):
-    """优先返回校准后的值，否则返回默认值"""
     if op in st.session_state.lead_time_override:
         return st.session_state.lead_time_override[op]
     return DEFAULT_LEAD_TIME.get(op, DEFAULT_LEAD_TIME['DEFAULT'])
@@ -460,14 +451,15 @@ if uploaded_file is not None:
     
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
-    # ========== 6 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    # ========== 7 Tabs ==========
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
         "🔍 Sales Query",
         "📅 Job Gantt Chart",
-        "⚠️ Delayed Alerts"
+        "⚠️ Delayed Alerts",
+        "📊 Job Progress Board"
     ])
     
     with tab1:
@@ -505,6 +497,9 @@ if uploaded_file is not None:
         if nest_filter:
             filtered_df = filtered_df[filtered_df['Nesting Num'].astype(str).str.contains(nest_filter, case=False, na=False)]
         
+        # 排序：按 ETA 升序（最紧急的排前面）
+        filtered_df = filtered_df.sort_values('ETA')
+        
         if filtered_df.empty:
             st.info("No tasks match the filters.")
         else:
@@ -536,15 +531,12 @@ if uploaded_file is not None:
                         step_blocks.append("⬜")
                 step_display = " ".join(step_blocks)
                 
-                # 使用 expander 作为卡片容器
                 with st.expander(f"📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}", expanded=False):
-                    # 状态标签
                     if row['Status'] == '✅ On track':
                         st.markdown('<span style="color:green; font-weight:bold;">✅ On track</span>', unsafe_allow_html=True)
                     else:
                         st.markdown('<span style="color:red; font-weight:bold;">⚠️ Delayed</span>', unsafe_allow_html=True)
                     
-                    # 关键指标
                     col_a, col_b, col_c, col_d = st.columns(4)
                     col_a.metric("🔧 Current Op", row['Current Operation'])
                     col_b.metric("🏭 Dept", row['Current Dept'])
@@ -553,11 +545,9 @@ if uploaded_file is not None:
                     exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'
                     col_d.metric("🚚 Exwork", exwork_str)
                     
-                    # 步骤指示器
                     st.markdown(f"**工序步骤**  {step_display}")
                     st.caption(f"进度: {current_idx+1}/{total_steps} 步，剩余 {remaining_steps} 个工序")
                     
-                    # 操作按钮
                     col_btn, col_cal = st.columns(2)
                     with col_btn:
                         if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
@@ -586,22 +576,21 @@ if uploaded_file is not None:
                                     st.warning("Enter actual hours first")
                         else:
                             st.write("✅ Completed")
-            
-            # 下载按钮
-            if st.button("📥 Download updated Excel (with progress changes)"):
-                output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
-                for col in ['ETA', 'Exwork Date', 'Planned Date']:
-                    if col in output_df.columns:
-                        output_df[col] = output_df[col].astype(str)
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    output_df.to_excel(writer, index=False, sheet_name='UpdatedSchedule')
-                st.download_button(
-                    label="Download Excel",
-                    data=output.getvalue(),
-                    file_name=f"updated_{st.session_state['file_name']}",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        
+        if st.button("📥 Download updated Excel (with progress changes)"):
+            output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
+            for col in ['ETA', 'Exwork Date', 'Planned Date']:
+                if col in output_df.columns:
+                    output_df[col] = output_df[col].astype(str)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                output_df.to_excel(writer, index=False, sheet_name='UpdatedSchedule')
+            st.download_button(
+                label="Download Excel",
+                data=output.getvalue(),
+                file_name=f"updated_{st.session_state['file_name']}",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
     
     with tab3:
         st.subheader("Department capacity load")
@@ -622,7 +611,9 @@ if uploaded_file is not None:
     with tab4:
         st.subheader("Quick sales query")
         st.info("💡 Enter a Job Number (e.g., 525651) to see summary and sorted subpart list.")
-        search_term = st.text_input("Enter Job Number (Base) or Subpart Part Num", key="sales_query")
+        # 如果从 Job Progress Board 跳转过来，预填搜索词
+        default_search = st.session_state.pop('selected_job_sales', '')
+        search_term = st.text_input("Enter Job Number (Base) or Subpart Part Num", value=default_search, key="sales_query")
         if search_term:
             mask = (df['_job_base'].astype(str).str.contains(search_term, case=False, na=False) |
                     df['Subpart Part Num'].str.contains(search_term, case=False, na=False))
@@ -693,7 +684,13 @@ if uploaded_file is not None:
         if len(all_jobs) == 0:
             st.warning("No Job numbers found in the data.")
         else:
-            selected_job = st.selectbox("Select Job Number (Base)", all_jobs)
+            # 如果从 Job Progress Board 跳转过来，预选 Job
+            default_job = st.session_state.pop('selected_job_gantt', None)
+            if default_job and default_job in all_jobs:
+                default_index = all_jobs.index(default_job)
+            else:
+                default_index = 0
+            selected_job = st.selectbox("Select Job Number (Base)", all_jobs, index=default_index)
             fig = create_gantt_for_job(df, selected_job, datetime.now().date())
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
@@ -726,6 +723,61 @@ if uploaded_file is not None:
             st.subheader("Job Summary with Delays")
             job_delay = delayed_df.groupby('_job_base').size().reset_index(name='Delayed Subparts')
             st.dataframe(job_delay, use_container_width=True)
+    
+    with tab7:
+        st.subheader("📊 Global Job Progress Board")
+        st.caption("Overview of all Jobs: estimated finish dates, progress, bottleneck departments, and more.")
+        
+        # 按 _job_base 分组聚合
+        job_group = df.groupby('_job_base').agg({
+            'Subpart Part Num': 'count',
+            'ETA': lambda x: x.max(),
+            'Status': lambda x: (x == '✅ On track').sum(),
+            'Current Dept': lambda x: x.mode()[0] if not x.empty else 'Unknown',
+            'Exwork Date': lambda x: x.max(),
+            'JobNum/Asm': lambda x: next(iter(x), '')
+        }).reset_index()
+        job_group.columns = ['Job', 'Subpart Count', 'Main Part ETA', 'On Track Count', 'Bottleneck Dept', 'Exwork Date', 'Sample JobNum']
+        job_group['Delayed Count'] = job_group['Subpart Count'] - job_group['On Track Count']
+        job_group['Progress %'] = (job_group['On Track Count'] / job_group['Subpart Count'] * 100).round(1)
+        
+        today = datetime.now().date()
+        job_group['Delayed Job'] = job_group['Main Part ETA'].apply(lambda x: x < today if pd.notna(x) else False)
+        job_group = job_group.sort_values('Main Part ETA')
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Jobs", len(job_group))
+        col2.metric("Jobs with Delayed Subparts", len(job_group[job_group['Delayed Count'] > 0]))
+        col3.metric("Fully On Track Jobs", len(job_group[job_group['Delayed Count'] == 0]))
+        
+        display_cols = ['Job', 'Sample JobNum', 'Subpart Count', 'Progress %', 'Main Part ETA', 'Delayed Count', 'Bottleneck Dept', 'Exwork Date']
+        display_df = job_group[display_cols].copy()
+        display_df['Main Part ETA'] = display_df['Main Part ETA'].dt.strftime('%Y-%m-%d')
+        display_df['Exwork Date'] = display_df['Exwork Date'].dt.strftime('%Y-%m-%d')
+        display_df = display_df.rename(columns={
+            'Job': 'Job Base',
+            'Sample JobNum': 'JobNum/Asm (Sample)',
+            'Subpart Count': 'Subparts',
+            'Progress %': 'Progress (%)',
+            'Main Part ETA': 'Est. Finish Date',
+            'Delayed Count': 'Delayed Subparts',
+            'Bottleneck Dept': 'Bottleneck Dept'
+        })
+        st.dataframe(display_df, use_container_width=True, height=400)
+        
+        st.subheader("Quick Actions")
+        selected_job_for_action = st.selectbox("Select Job to view details", job_group['Job'].tolist())
+        col_gantt, col_sales = st.columns(2)
+        with col_gantt:
+            if st.button("View Gantt Chart for this Job"):
+                st.session_state['selected_job_gantt'] = selected_job_for_action
+                st.session_state['active_tab'] = 4  # 甘特图 tab 索引
+                st.rerun()
+        with col_sales:
+            if st.button("View Sales Summary for this Job"):
+                st.session_state['selected_job_sales'] = selected_job_for_action
+                st.session_state['active_tab'] = 3  # 销售查询 tab 索引
+                st.rerun()
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
@@ -737,4 +789,5 @@ else:
     5. **Auto-Calibration**: Enter actual hours (in hours) and click "Calibrate" to adjust future ETAs. Export/Import calibration JSON for persistence.
     6. Download updated Excel to persist progress changes.
     7. Check **Delayed Alerts** tab for overdue tasks.
+    8. Use **Job Progress Board** to get an overview of all Jobs and quickly jump to Gantt/Sales views.
     """)
