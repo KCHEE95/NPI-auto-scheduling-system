@@ -249,7 +249,7 @@ def update_task_to_next_operation(df, index, today):
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
-    """为指定 Job 生成甘特图，Y轴排序，X轴显示星期几/日期/周数，视窗增大"""
+    """为指定 Job 生成甘特图，X轴自定义四行标签（Week/周首日期/日期/星期缩写）"""
     job_df = df[df['_job_base'] == job_base].copy()
     if job_df.empty:
         return None
@@ -298,12 +298,14 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
+    # 强制 Y 轴顺序
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=job_df['Task'].tolist(),
         autorange='reversed'
     )
     
+    # 添加今天垂直线
     from datetime import datetime as dt
     today_dt = dt.combine(today, dt.min.time())
     fig.add_shape(
@@ -321,15 +323,39 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # X轴在顶部，三行标签：完整星期几 / 月日 / 周数
+    # --- 自定义 X 轴四行标签 ---
+    # 确定日期范围
+    all_starts = job_df['Start']
+    all_finishes = job_df['Finish']
+    min_date = all_starts.min().floor('D')
+    max_date = all_finishes.max().ceil('D')
+    # 生成每天一个刻度
+    date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+    
+    tickvals = []
+    ticktexts = []
+    for d in date_range:
+        # 计算周数（使用周一为一周开始）
+        week_num = d.strftime('%W')  # 00-53，周一为一周开始
+        # 计算该周第一天的日期（周一）
+        week_start = d - pd.Timedelta(days=d.weekday())
+        # 构造四行文本
+        text = f"Week {week_num}<br>{week_start.strftime('%b %d')}<br>{d.day}<br>{d.strftime('%a')[0]}"
+        tickvals.append(d)
+        ticktexts.append(text)
+    
+    fig.update_xaxis(
+        tickvals=tickvals,
+        ticktext=ticktexts,
+        tickangle=0,
+        side='top',
+        tickfont=dict(size=10)
+    )
+    
+    # 调整布局高度和边距
     fig.update_layout(
-        xaxis=dict(
-            side='top',
-            tickformat='%A\n%b %d\nWeek %W',
-            title=''
-        ),
         height=max(500, len(job_df)*35),
-        margin=dict(t=100, b=60, l=10, r=10),
+        margin=dict(t=120, b=10, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
