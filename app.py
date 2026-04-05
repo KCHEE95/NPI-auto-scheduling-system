@@ -249,7 +249,7 @@ def update_task_to_next_operation(df, index, today):
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
-    """为指定 Job 生成甘特图（Y轴显示 JobNum/Asm - Subpart Part Num，按 -0,-1,-2 排序，X轴在顶部）"""
+    """为指定 Job 生成甘特图（Y轴显示 JobNum/Asm - Subpart Part Num，按 -0,-1,-2... 排序，X轴在顶部）"""
     job_df = df[df['_job_base'] == job_base].copy()
     if job_df.empty:
         return None
@@ -260,7 +260,7 @@ def create_gantt_for_job(df, job_base, today):
         match = re.search(r'-(\d+)$', str(job_num))
         if match:
             return int(match.group(1))
-        return 0  # 如果没有后缀，默认0
+        return 0
     
     job_df['_sort_key'] = job_df['JobNum/Asm'].apply(extract_suffix)
     job_df = job_df.sort_values('_sort_key')  # 按后缀升序排列
@@ -271,9 +271,7 @@ def create_gantt_for_job(df, job_base, today):
     
     # 确定开始日期：优先使用 Planned Date，若无效则使用今天
     job_df['Start'] = job_df['Planned Date'].fillna(pd.Timestamp(today))
-    # 结束日期 = ETA，若无效则使用今天+1天
     job_df['Finish'] = job_df['ETA'].fillna(pd.Timestamp(today) + pd.Timedelta(days=1))
-    # 确保 Finish 不早于 Start
     mask = job_df['Finish'] < job_df['Start']
     job_df.loc[mask, 'Finish'] = job_df.loc[mask, 'Start'] + pd.Timedelta(days=0.1)
     
@@ -284,8 +282,10 @@ def create_gantt_for_job(df, job_base, today):
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
     
-    # 创建 Y 轴标签：JobNum/Asm - Subpart Part Num
-    job_df['Task'] = job_df['JobNum/Asm'].astype(str) + ' - ' + job_df['Subpart Part Num'].astype(str)
+    # 创建 Y 轴标签：JobNum/Asm 加粗，Subpart Part Num 正常
+    job_df['Task'] = job_df.apply(
+        lambda row: f"<b>{row['JobNum/Asm']}</b> - {row['Subpart Part Num']}", axis=1
+    )
     
     # 创建甘特图
     fig = px.timeline(
@@ -307,6 +307,13 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
+    # 强制 Y 轴类别顺序：按照排序后的 Task 列表（确保顺序正确）
+    fig.update_yaxes(
+        categoryorder='array',
+        categoryarray=job_df['Task'].tolist(),
+        autorange='reversed'
+    )
+    
     # 添加当前日期垂直线
     from datetime import datetime as dt
     today_dt = dt.combine(today, dt.min.time())
@@ -325,18 +332,20 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # 设置 X 轴在顶部，并自定义刻度格式（使用布局方式，避免 update_xaxis 的潜在问题）
+    # 设置 X 轴在顶部，并自定义刻度格式
     fig.update_layout(
         xaxis=dict(
             side='top',
-            tickformat='%b %d\nWeek %W',   # 换行符 \n 在 plotly 中有效
+            tickformat='%b %d\nWeek %W',
             title='Date / Week'
         ),
-        yaxis=dict(autorange='reversed'),   # 保持排序顺序，从上到下 -0, -1, -2...
         height=max(400, len(job_df)*30),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
+    
+    # 启用 HTML 解析以显示加粗标签（需要 plotly 5.0+）
+    fig.update_layout(yaxis=dict(ticklabel=dict(parse_html=True)))
     
     return fig
 # ========== Main interface ==========
