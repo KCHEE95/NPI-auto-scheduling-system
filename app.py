@@ -469,61 +469,86 @@ if uploaded_file is not None:
                         step_blocks.append("⬜")   # 未完成
                 step_display = " ".join(step_blocks)
                 
-                # 卡片开始
-                with st.container():
-                    st.markdown("---")
-                    # 标题行
-                    col_title, col_status = st.columns([3, 1])
-                    with col_title:
-                        st.markdown(f"**📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}**")
-                    with col_status:
-                        if row['Status'] == '✅ On track':
-                            st.markdown('<span style="color:green; font-weight:bold;">✅ On track</span>', unsafe_allow_html=True)
+                # 卡片开始：使用 HTML div 包裹实现白色背景和圆角
+                st.markdown(
+                    f"""
+                    <div style="
+                        background-color: #ffffff;
+                        border-radius: 16px;
+                        padding: 16px;
+                        margin-bottom: 16px;
+                        box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+                        border-left: 6px solid {'#10b981' if row['Status'] == '✅ On track' else '#ef4444'};
+                    ">
+                    """,
+                    unsafe_allow_html=True
+                )
+                
+                # 标题行
+                col_title, col_status = st.columns([3, 1])
+                with col_title:
+                    st.markdown(f"**📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}**")
+                with col_status:
+                    if row['Status'] == '✅ On track':
+                        st.markdown('<span style="color:green; font-weight:bold;">✅ On track</span>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<span style="color:red; font-weight:bold;">⚠️ Delayed</span>', unsafe_allow_html=True)
+                
+                # 关键指标
+                col_a, col_b, col_c, col_d = st.columns(4)
+                col_a.metric("🔧 Current Op", row['Current Operation'])
+                col_b.metric("🏭 Dept", row['Current Dept'])
+                eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'
+                col_c.metric("📅 Est. Finish", eta_str)
+                exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'
+                col_d.metric("🚚 Exwork", exwork_str)
+                
+                # 步骤指示器
+                step_blocks = []
+                for i in range(total_steps):
+                    if i < current_idx:
+                        step_blocks.append("🟩")
+                    elif i == current_idx:
+                        step_blocks.append("🔵")
+                    else:
+                        step_blocks.append("⬜")
+                step_display = " ".join(step_blocks)
+                st.markdown(f"**工序步骤**  {step_display}")
+                st.caption(f"进度: {current_idx+1}/{total_steps} 步，剩余 {remaining_steps} 个工序")
+                
+                # 操作按钮
+                col_btn, col_cal = st.columns(2)
+                with col_btn:
+                    if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
+                        today = datetime.now().date()
+                        updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
+                        if success:
+                            st.session_state['df'] = updated_df
+                            st.success(f"Task {row['Subpart Part Num']}: {message}")
+                            st.rerun()
                         else:
-                            st.markdown('<span style="color:red; font-weight:bold;">⚠️ Delayed</span>', unsafe_allow_html=True)
-                    
-                    # 关键指标
-                    col_a, col_b, col_c, col_d = st.columns(4)
-                    col_a.metric("🔧 Current Op", row['Current Operation'])
-                    col_b.metric("🏭 Dept", row['Current Dept'])
-                    eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'
-                    col_c.metric("📅 Est. Finish", eta_str)
-                    exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'
-                    col_d.metric("🚚 Exwork", exwork_str)
-                    
-                    # 步骤指示器
-                    st.markdown(f"**工序步骤**  {step_display}")
-                    st.caption(f"进度: {current_idx+1}/{total_steps} 步，剩余 {remaining_steps} 个工序")
-                    
-                    # 操作按钮
-                    col_btn, col_cal = st.columns(2)
-                    with col_btn:
-                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
-                            today = datetime.now().date()
-                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
-                            if success:
-                                st.session_state['df'] = updated_df
-                                st.success(f"Task {row['Subpart Part Num']}: {message}")
+                            st.error(f"Failed: {message}")
+                with col_cal:
+                    op = row['Current Operation']
+                    if op not in ['COMPLETED', '']:
+                        actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed", placeholder="Hours")
+                        if st.button(f"Calibrate", key=f"calib_{idx}", use_container_width=True):
+                            if actual_hours > 0:
+                                old_days = get_lead_time(op)
+                                old_hours = old_days * 10
+                                new_hours = 0.7 * old_hours + 0.3 * actual_hours
+                                new_days = new_hours / 10
+                                st.session_state.lead_time_override[op] = new_days
+                                st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
                                 st.rerun()
                             else:
-                                st.error(f"Failed: {message}")
-                    with col_cal:
-                        op = row['Current Operation']
-                        if op not in ['COMPLETED', '']:
-                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed", placeholder="Hours")
-                            if st.button(f"Calibrate", key=f"calib_{idx}", use_container_width=True):
-                                if actual_hours > 0:
-                                    old_days = get_lead_time(op)
-                                    old_hours = old_days * 10
-                                    new_hours = 0.7 * old_hours + 0.3 * actual_hours
-                                    new_days = new_hours / 10
-                                    st.session_state.lead_time_override[op] = new_days
-                                    st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
-                                    st.rerun()
-                                else:
-                                    st.warning("Enter actual hours first")
-                        else:
-                            st.write("✅ Completed")
+                                st.warning("Enter actual hours first")
+                    else:
+                        st.write("✅ Completed")
+                
+                # 关闭 div
+                st.markdown("</div>", unsafe_allow_html=True)
+                st.markdown("---")
             # 下载按钮放在循环外
             if st.button("📥 Download updated Excel (with progress changes)"):
                 output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
