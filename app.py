@@ -36,21 +36,55 @@ LEAD_TIME = {
 }
 
 OP_TO_DEPT = {
-    'W-CDS-A': 'Cutting', 'W-LWD': 'Laser Welding', 'M-LC-FBR': 'Machining',
-    'P-DB': 'Drilling', 'M-BD': 'Bending', 'P-GRD': 'Grinding',
-    'P-DGR': 'Deburring', 'P-MK-A': 'Marking', 'F-PT': 'Painting',
-    'P-DMK-A': 'Dispensing', 'F-INK': 'Printing', '2-PK-A': 'Packing A',
-    'N-MC': 'CNC', 'P-TU-A': 'Tapping', 'D-TAP-A': 'Threading',
-    'P-PCKLNG': 'Packing', 'F-NPV1': 'Post-treatment 1', 'ASSY-A': 'Assembly',
-    'P-BF': 'Stamping', 'C-SAW': 'Sawing', 'DEFAULT': 'Unassigned'
+    # 用户提供的映射（包括新增）
+    'P-DB': 'Deburr',
+    'M-LC-FBR': 'Laser Cut',
+    'P-MK-A': 'Masking',
+    'P-DMK-A': 'Demasking',
+    'F-INK': 'Inkjet',
+    'N-MC': 'Machining',
+    'P-TU-A': 'Touch Up',
+    'D-TAP-A': 'Tapping',
+    'P-PCKLNG': 'Pickling',
+    'F-NPV1': 'Passivation',
+    'ASSY-A': 'Assembly A',
+    'P-BF': 'Buffing',
+    'W-CDS-A': 'CD Stud',      # 新增
+    'P-DGR': 'Degreasing',     # 新增
+    # 原有其他映射保持不变
+    'W-LWD': 'Laser Welding',
+    'M-BD': 'Bending',
+    'P-GRD': 'Grinding',
+    '2-PK-A': 'Packing A',
+    'C-SAW': 'Sawing',
+    'DEFAULT': 'Unassigned'
 }
 
 DEPT_CAPACITY = {
-    'Cutting': 5, 'Laser Welding': 3, 'Machining': 8, 'Drilling': 4,
-    'Bending': 3, 'Grinding': 2, 'Deburring': 2, 'Marking': 2,
-    'Painting': 1, 'Dispensing': 2, 'Printing': 1, 'Packing A': 3,
-    'CNC': 4, 'Tapping': 2, 'Threading': 2, 'Packing': 4,
-    'Post-treatment 1': 2, 'Assembly': 3, 'Stamping': 3, 'Sawing': 2,
+    # 原有部门
+    'Deburr': 4,
+    'Laser Cut': 5,
+    'Masking': 2,
+    'Demasking': 2,
+    'Inkjet': 1,
+    'Machining': 4,
+    'Touch Up': 2,
+    'Tapping': 2,
+    'Pickling': 1,
+    'Passivation': 2,
+    'Assembly A': 3,
+    'Buffing': 3,
+    'Cutting': 5,
+    'Laser Welding': 3,
+    'Bending': 3,
+    'Grinding': 2,
+    'Deburring': 2,
+    'Packing A': 3,
+    'Sawing': 2,
+    'Unassigned': 5,
+    # 新增部门容量（示例值，请根据实际修改）
+    'CD Stud': 4,
+    'Degreasing': 2
 }
 
 # ========== Helper functions ==========
