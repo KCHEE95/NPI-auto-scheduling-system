@@ -360,7 +360,7 @@ if uploaded_file is not None:
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
     # ========== 新增第五个 Tab：甘特图 ==========
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query", "📅 Job Gantt Chart"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query", "📅 Job Gantt Chart", "⚠️ Delayed Alerts"])
     
     with tab1:
         st.subheader("Real-time status of all subparts")
