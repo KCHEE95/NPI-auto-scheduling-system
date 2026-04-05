@@ -457,86 +457,83 @@ if uploaded_file is not None:
         if not overload.empty:
             st.error(f"⚠️ Overloaded departments: {', '.join(overload['Department'].tolist())}")
     
-        with tab4:
+    with tab4:
         st.subheader("Quick sales query")
-        st.caption("Enter Job Number (e.g., 525651) or Subpart Part Number. Results are sorted by subpart suffix (-0, -1, -2...). AI summary shows overall status.")
-        search_term = st.text_input("Enter Main Part Num, Subpart Part Num, or JobNum/Asm (supports partial match)")
-        
+        st.info("💡 Enter a Job Number (e.g., 525651) to see summary and sorted subpart list.")
+        search_term = st.text_input("Enter Job Number (Base) or Subpart Part Num", key="sales_query")
         if search_term:
             # 筛选匹配的行
-            mask = (df['Main Part Num'].str.contains(search_term, case=False, na=False) |
-                    df['Subpart Part Num'].str.contains(search_term, case=False, na=False) |
-                    df['JobNum/Asm'].astype(str).str.contains(search_term, case=False, na=False))
+            mask = (df['_job_base'].astype(str).str.contains(search_term, case=False, na=False) |
+                    df['Subpart Part Num'].str.contains(search_term, case=False, na=False))
             result = df[mask].copy()
-            
             if not result.empty:
-                # 提取排序键：后缀数字
-                import re
+                # 按后缀排序
                 def extract_suffix(job_num):
+                    import re
                     match = re.search(r'-(\d+)$', str(job_num))
                     if match:
                         return int(match.group(1))
                     return 0
                 result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
-                result = result.sort_values('_sort_key').drop(columns=['_sort_key'])
+                result = result.sort_values('_sort_key')
                 
-                # 生成AI摘要（基于统计）
-                # 获取该Job的基础编号（如果搜索词本身是Job基础编号，则取之；否则从结果中提取共同基础编号）
-                # 简单起见，取第一个JobNum/Asm的基础编号
-                first_job = result.iloc[0]['JobNum/Asm']
-                job_base = re.match(r'^([^-]+)', str(first_job)).group(1) if pd.notna(first_job) else search_term
-                
-                # 统计各部门任务数
-                dept_counts = result['Current Dept'].value_counts()
-                # 找出最慢的部门（任务数最多或者ETA最晚？这里简单取任务数最多的部门作为瓶颈）
-                bottleneck_dept = dept_counts.idxmax() if not dept_counts.empty else 'Unknown'
-                # 找出主部件（-0）的ETA
-                main_part = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
-                if not main_part.empty:
-                    main_eta = main_part.iloc[0]['ETA']
-                    main_eta_str = main_eta.strftime('%Y-%m-%d') if pd.notna(main_eta) else 'Not set'
+                # 生成摘要
+                job_base = search_term
+                if '_job_base' in result.columns:
+                    job_base = result.iloc[0]['_job_base']
+                total_subparts = len(result)
+                on_track = len(result[result['Status'] == '✅ On track'])
+                delayed = total_subparts - on_track
+                # 主部件信息
+                main_part_row = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
+                if not main_part_row.empty:
+                    main_eta = main_part_row.iloc[0]['ETA'].strftime('%Y-%m-%d') if pd.notna(main_part_row.iloc[0]['ETA']) else 'Unknown'
+                    main_dept = main_part_row.iloc[0]['Current Dept']
                 else:
-                    # 如果没有主部件，取所有子部件的最晚ETA
-                    main_eta = result['ETA'].max()
-                    main_eta_str = main_eta.strftime('%Y-%m-%d') if pd.notna(main_eta) else 'Not set'
-                # Exwork Date（取第一个非空）
-                exwork_date = result['Exwork Date'].dropna().iloc[0] if not result['Exwork Date'].dropna().empty else None
-                exwork_str = exwork_date.strftime('%Y-%m-%d') if exwork_date else 'Not set'
+                    main_eta = 'No main part'
+                    main_dept = 'N/A'
+                # 出货日期 (Exwork Date)
+                exwork_dates = result['Exwork Date'].dropna()
+                exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
+                # 瓶颈部门：统计各子部件当前部门出现次数最多的
+                dept_counts = result['Current Dept'].value_counts()
+                if not dept_counts.empty:
+                    bottleneck_dept = dept_counts.index[0]
+                    bottleneck_count = dept_counts.iloc[0]
+                else:
+                    bottleneck_dept = 'None'
+                    bottleneck_count = 0
+                # 卡住的部门（延期任务的部门）
+                delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
                 
-                # 统计已完成/进行中
-                total = len(result)
-                delayed = len(result[result['Status'] == '⚠️ Delayed'])
-                on_track = total - delayed
+                # 显示摘要
+                st.markdown("### 📊 Job Summary")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Subparts", total_subparts)
+                col1.metric("On Track", on_track, delta=None)
+                col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
+                col2.metric("Main Part Est. Finish", main_eta)
+                col2.metric("Exwork Date (Delivery)", exwork_date)
+                col3.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
+                if not delayed_depts.empty:
+                    st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
                 
-                # 构建摘要
-                summary = f"""
-                **📊 AI Summary for Job {job_base}**  
-                - Total subparts: **{total}**  
-                - On track: **{on_track}** | Delayed: **{delayed}**  
-                - Main part estimated finish date: **{main_eta_str}**  
-                - Exwork (Delivery) date: **{exwork_str}**  
-                - Current bottleneck department: **{bottleneck_dept}** (most subparts waiting)  
-                - Subparts stuck in each department:  
-                """
-                for dept, count in dept_counts.items():
-                    summary += f"  - {dept}: {count}\n"
-                
-                st.info(summary)
-                
-                # 显示详细表格，按后缀排序
-                st.subheader("Detailed subpart list (sorted by -0, -1, -2...)")
+                # 显示详细列表
+                st.markdown("### 📋 Subpart Details (sorted by -0, -1, -2...)")
                 display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
                                 'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
                 display_cols = [c for c in display_cols if c in result.columns]
-                # 格式化日期
-                result_display = result[display_cols].copy()
-                for col in ['ETA', 'Exwork Date']:
-                    if col in result_display.columns:
-                        result_display[col] = pd.to_datetime(result_display[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
                 st.dataframe(result_display, use_container_width=True)
                 
+                # 可选：显示每个子部件的完整工序链
+                with st.expander("🔍 View full operation chain for each subpart"):
+                    for _, row in result.iterrows():
+                        if row['_steps']:
+                            steps_str = " → ".join(row['_steps'])
+                            st.write(f"**{row['JobNum/Asm']} - {row['Subpart Part Num']}** : {steps_str}")
             else:
-                st.warning("No matching Part or Job found")
+                st.warning("No matching Job or Subpart found. Please check the Job Number (e.g., 525651).")
     
     # ========== 新增甘特图页面 ==========
     with tab5:
