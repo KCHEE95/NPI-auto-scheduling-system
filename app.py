@@ -282,10 +282,8 @@ def create_gantt_for_job(df, job_base, today):
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
     
-    # 创建 Y 轴标签：JobNum/Asm 加粗，Subpart Part Num 正常
-    job_df['Task'] = job_df.apply(
-        lambda row: f"<b>{row['JobNum/Asm']}</b> - {row['Subpart Part Num']}", axis=1
-    )
+    # 创建 Y 轴标签：JobNum/Asm - Subpart Part Num（纯文本）
+    job_df['Task'] = job_df['JobNum/Asm'].astype(str) + ' - ' + job_df['Subpart Part Num'].astype(str)
     
     # 创建甘特图
     fig = px.timeline(
@@ -307,7 +305,7 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # 强制 Y 轴类别顺序：按照排序后的 Task 列表（确保顺序正确）
+    # 强制 Y 轴类别顺序：按照排序后的 Task 列表
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=job_df['Task'].tolist(),
@@ -343,9 +341,6 @@ def create_gantt_for_job(df, job_base, today):
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
-    
-    # 启用 HTML 解析以显示加粗标签（需要 plotly 5.0+）
-    fig.update_layout(yaxis=dict(ticklabel=dict(parse_html=True)))
     
     return fig
 # ========== Main interface ==========
