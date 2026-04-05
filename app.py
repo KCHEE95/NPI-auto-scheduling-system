@@ -460,24 +460,56 @@ if uploaded_file is not None:
                 with st.container():
                     st.markdown(
                         f"""
-                        <div style="background-color: #f9f9f9; border-radius: 10px; padding: 12px; margin-bottom: 12px; border-left: 5px solid {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05); color: #212529;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <strong style="font-size: 1.05rem; color: #212529;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
-                                <span style="background-color: {'#d4edda' if row['Status'] == '✅ On track' else '#f8d7da'}; color: {'#155724' if row['Status'] == '✅ On track' else '#721c24'}; padding: 2px 8px; border-radius: 20px; font-size: 0.8rem;">{row['Status']}</span>
-                            </div>
-                            <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px;">
-                                <div><span style="color: #495057;">🔧 Current Op:</span> <strong style="color: #212529;">{row['Current Operation']}</strong></div>
-                                <div><span style="color: #495057;">🏭 Dept:</span> <strong style="color: #212529;">{row['Current Dept']}</strong></div>
-                                <div><span style="color: #495057;">📅 Est. Finish:</span> <strong style="color: #212529;">{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
-                                <div><span style="color: #495057;">📦 Exwork:</span> <strong style="color: #212529;">{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
-                            </div>
-                            <div style="margin-top: 12px;">
-                                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #495057;">
-                                    <span>Progress</span>
-                                    <span>{progress_pct}% · {remaining_steps} steps remaining</span>
+                        <div style="
+                            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                            border-radius: 16px;
+                            padding: 16px;
+                            margin-bottom: 16px;
+                            box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+                            border-left: 6px solid {'#10b981' if row['Status'] == '✅ On track' else '#ef4444'};
+                            transition: transform 0.2s, box-shadow 0.2s;
+                            color: #1e293b;
+                        ">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.3rem;">📦</span>
+                                    <strong style="font-size: 1.05rem; color: #0f172a;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
                                 </div>
-                                <div style="background-color: #e9ecef; border-radius: 20px; overflow: hidden; height: 6px;">
-                                    <div style="width: {progress_pct}%; background-color: {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; height: 6px;"></div>
+                                <span style="
+                                    background-color: {'#d1fae5' if row['Status'] == '✅ On track' else '#fee2e2'};
+                                    color: {'#065f46' if row['Status'] == '✅ On track' else '#991b1b'};
+                                    padding: 4px 12px;
+                                    border-radius: 40px;
+                                    font-size: 0.75rem;
+                                    font-weight: 600;
+                                    letter-spacing: 0.3px;
+                                ">{row['Status']}</span>
+                            </div>
+                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">🔧</span>
+                                    <div><span style="color: #475569; font-size: 0.75rem;">CURRENT OP</span><br><strong style="font-size: 0.9rem;">{row['Current Operation']}</strong></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">🏭</span>
+                                    <div><span style="color: #475569; font-size: 0.75rem;">DEPARTMENT</span><br><strong style="font-size: 0.9rem;">{row['Current Dept']}</strong></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">📅</span>
+                                    <div><span style="color: #475569; font-size: 0.75rem;">EST. FINISH</span><br><strong style="font-size: 0.9rem;">{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 1.1rem;">🚚</span>
+                                    <div><span style="color: #475569; font-size: 0.75rem;">EXWORK</span><br><strong style="font-size: 0.9rem;">{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
+                                </div>
+                            </div>
+                            <div>
+                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #475569; margin-bottom: 6px;">
+                                    <span>📈 PROGRESS</span>
+                                    <span>{progress_pct}% · {remaining_steps} steps left</span>
+                                </div>
+                                <div style="background-color: #e2e8f0; border-radius: 20px; overflow: hidden; height: 8px;">
+                                    <div style="width: {progress_pct}%; background-color: {'#10b981' if row['Status'] == '✅ On track' else '#ef4444'}; height: 8px; border-radius: 20px;"></div>
                                 </div>
                             </div>
                         </div>
