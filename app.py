@@ -503,13 +503,31 @@ if uploaded_file is not None:
                                     <div><span style="color: #475569; font-size: 0.75rem;">EXWORK</span><br><strong style="font-size: 0.9rem;">{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
                                 </div>
                             </div>
-                            <div>
-                                <div style="display: flex; justify-content: space-between; font-size: 0.75rem; color: #475569; margin-bottom: 6px;">
-                                    <span>📈 PROGRESS</span>
-                                    <span>{progress_pct}% · {remaining_steps} steps left</span>
+                            
+                            <!-- 步骤指示器 -->
+                            <div style="margin-top: 8px;">
+                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
+                                    <span style="font-size: 0.75rem; font-weight: 600; color: #475569;">工序步骤</span>
+                                    <span style="font-size: 0.7rem; color: #64748b;">Step {current_idx+1 if steps else 0} of {len(steps)}</span>
                                 </div>
-                                <div style="background-color: #e2e8f0; border-radius: 20px; overflow: hidden; height: 8px;">
-                                    <div style="width: {progress_pct}%; background-color: {'#10b981' if row['Status'] == '✅ On track' else '#ef4444'}; height: 8px; border-radius: 20px;"></div>
+                                <div style="display: flex; gap: 6px; align-items: center;">
+                                    {''.join([f'''
+                                    <div style="
+                                        flex: 1;
+                                        height: 10px;
+                                        background-color: {'#10b981' if i < current_idx else ('#3b82f6' if i == current_idx else '#e2e8f0')};
+                                        border-radius: 20px;
+                                        {'border: 1px solid #3b82f6;' if i == current_idx else ''}
+                                        {'opacity: 0.6;' if i > current_idx else ''}
+                                        transition: all 0.2s;
+                                        cursor: default;
+                                    " title="{step}"></div>
+                                    ''' for i, step in enumerate(steps)])}
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.65rem; color: #94a3b8;">
+                                    <span>开始</span>
+                                    <span>当前</span>
+                                    <span>剩余 {remaining_steps} 步</span>
                                 </div>
                             </div>
                         </div>
