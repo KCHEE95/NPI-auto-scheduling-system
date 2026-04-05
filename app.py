@@ -103,6 +103,20 @@ def extract_step_sequence(row):
             steps.append(row[col])
     return steps
 
+def get_next_operation(current_op, steps):
+    """返回当前工序的下一个工序，如果已完成或没有下一步则返回空字符串"""
+    if not steps:
+        return ''
+    if pd.isna(current_op) or current_op == '':
+        return steps[0] if steps else ''  # 没有当前工序，则第一步是下一步
+    if current_op not in steps:
+        return ''
+    idx = steps.index(current_op)
+    if idx + 1 < len(steps):
+        return steps[idx + 1]
+    else:
+        return 'COMPLETED'  # 已是最后一步
+
 def compute_eta(row, today):
     current_op = row.get('Current Operation')
     steps = row['_steps']
@@ -127,7 +141,7 @@ def get_dept_from_op(op):
     return OP_TO_DEPT.get(op, OP_TO_DEPT['DEFAULT'])
 
 def update_task_to_next_operation(df, index):
-    """将指定行的任务推进到下一个工序，返回更新后的 DataFrame"""
+    """将指定行的任务推进到下一个工序，同时更新 Next Operation 和 ETA"""
     row = df.loc[index]
     steps = row['_steps']
     current_op = row['Current Operation']
@@ -141,11 +155,16 @@ def update_task_to_next_operation(df, index):
         # 已经是最后一步，标记为完成
         df.at[index, 'Current Operation'] = 'COMPLETED'
         df.at[index, 'Current Dept'] = 'Completed'
+        df.at[index, 'Next Operation'] = ''
+        # 重新计算 ETA（已完成，ETA 设为今天或空）
+        df.at[index, 'ETA'] = datetime.now().date()
         return df, True, "Task completed (no next operation)"
     else:
         next_op = steps[current_idx + 1]
         df.at[index, 'Current Operation'] = next_op
         df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
+        # 更新 Next Operation
+        df.at[index, 'Next Operation'] = get_next_operation(next_op, steps)
         # 重新计算 ETA
         df.at[index, 'ETA'] = compute_eta(df.loc[index], datetime.now().date())
         return df, True, f"Moved to next operation: {next_op}"
@@ -164,6 +183,8 @@ if uploaded_file is not None:
         df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
         df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
         df['Status'] = df['ETA'].apply(lambda x: '⚠️ Delayed' if x < today else '✅ On track')
+        # Add Next Operation column
+        df['Next Operation'] = df.apply(lambda row: get_next_operation(row['Current Operation'], row['_steps']), axis=1)
         # Convert Exwork Date
         if 'Exwork Date' in df.columns:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
@@ -182,7 +203,7 @@ if uploaded_file is not None:
     with tab1:
         st.subheader("Real-time status of all subparts")
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
-                     'Current Operation', 'Current Dept', 'ETA', 'Status', 'Assigned Eng']
+                     'Current Operation', 'Next Operation', 'Current Dept', 'ETA', 'Status', 'Assigned Eng']
         extra_cols = ['Exwork Date', 'Subpart Qty', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10']
         display_cols = [c for c in base_cols + extra_cols if c in df.columns]
         df_display = df[display_cols].sort_values('ETA')
@@ -196,40 +217,33 @@ if uploaded_file is not None:
     
     with tab2:
         st.subheader("Department to-do list")
-        # Department filter
         dept_list = sorted(df['Current Dept'].unique())
         selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
         
-        # Additional filters: JobNum/Asm and Nesting Num
         col1, col2 = st.columns(2)
         with col1:
             job_filter = st.text_input("Filter by JobNum/Asm (partial match)", key="job_filter")
         with col2:
             nest_filter = st.text_input("Filter by Nesting Num (partial match)", key="nest_filter")
         
-        # Apply filters
         filtered_df = df[df['Current Dept'] == selected_dept]
         if job_filter:
             filtered_df = filtered_df[filtered_df['JobNum/Asm'].astype(str).str.contains(job_filter, case=False, na=False)]
         if nest_filter:
             filtered_df = filtered_df[filtered_df['Nesting Num'].astype(str).str.contains(nest_filter, case=False, na=False)]
         
-        # Display tasks with buttons
         if filtered_df.empty:
             st.info("No tasks match the filters.")
         else:
-            # Prepare columns to show
             cols_to_show = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
-                            'Current Operation', 'ETA', 'Status', 'Assigned Eng',
+                            'Current Operation', 'Next Operation', 'ETA', 'Status', 'Assigned Eng',
                             'Exwork Date', 'Subpart Qty', 'Mtl 10']
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
             
-            # Use a form to batch button clicks (or just iterate)
             for idx, row in filtered_df.iterrows():
                 with st.container():
                     col_a, col_b = st.columns([0.85, 0.15])
                     with col_a:
-                        # Show row data as a mini table
                         row_data = {col: row[col] for col in cols_to_show}
                         st.write(pd.DataFrame([row_data]).T)
                     with col_b:
@@ -243,9 +257,7 @@ if uploaded_file is not None:
                                 st.error(f"Failed: {message}")
                 st.divider()
         
-        # Export modified Excel
         if st.button("📥 Download updated Excel (with progress changes)"):
-            # Prepare output file (drop the '_steps' column before saving)
             output_df = st.session_state['df'].drop(columns=['_steps'], errors='ignore')
             # Convert datetime columns to string for Excel compatibility
             for col in ['ETA', 'Exwork Date']:
@@ -293,6 +305,7 @@ if uploaded_file is not None:
                             f"- JobNum/Asm: {row['JobNum/Asm']}  \n"
                             f"- Nesting Num: {row['Nesting Num']}  \n"
                             f"- Current Operation: {row['Current Operation']}  \n"
+                            f"- Next Operation: {row.get('Next Operation', '')}  \n"
                             f"- Department: {row['Current Dept']}  \n"
                             f"- Estimated Completion Date: {eta_str}  \n"
                             f"- Exwork Date (Delivery): {exwork_str}  \n"
@@ -307,9 +320,7 @@ else:
     ### 📌 Instructions
     1. Export BAQ Report from Epicor, ensure the header is on row 6 (code handles this automatically)
     2. Must include columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20` (or `Step1`~`Step20`), `Current Operation`
-    3. Recommended additional columns: `Exwork Date`, `Subpart Qty`, `Subpart 2D Rev`, `Subpart KK Rev`, `Mtl 10`
-    4. In **Department Workbench**, you can now:
-       - Filter by **JobNum/Asm** and **Nesting Num**
-       - Click **Complete & Next** to advance a task to the next operation
-       - Download the updated Excel file to persist changes
+    3. The system will automatically compute `Next Operation` based on the step chain.
+    4. In **Department Workbench**, use filters and click **Complete & Next** to advance tasks. The `Next Operation` will update correctly.
+    5. Download the updated Excel to persist changes.
     """)
