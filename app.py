@@ -30,61 +30,74 @@ st.title("📊 AI Auto Scheduling & Progress Tracking System")
 st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, alerts, and auto-calibration")
 st.markdown("""
 <style>
-    /* 强制 expander 卡片白色背景，深色文字 */
+    /* 卡片容器：暖米色背景，圆角，阴影，边框 */
     .stExpander {
-        background-color: #ffffff !important;
+        background-color: #fef9e8 !important;
         border-radius: 16px !important;
         box-shadow: 0 2px 8px rgba(0,0,0,0.05) !important;
         margin-bottom: 16px !important;
-        border: 1px solid #e2e8f0 !important;
+        border: 1px solid #fde6b6 !important;
     }
-    /* 标题栏背景浅灰，文字深色 */
+    /* 标题栏：稍深暖米色，圆角仅顶部 */
     .stExpander summary {
-        background-color: #f1f5f9 !important;
+        background-color: #fef0d5 !important;
         border-radius: 16px 16px 0 0 !important;
-        color: #0f172a !important;
+        color: #2d2a24 !important;
         font-weight: 600 !important;
         padding: 12px 16px !important;
         font-size: 1rem !important;
+        border-bottom: 1px solid #fde6b6 !important;
     }
     /* 标题栏 hover 效果 */
     .stExpander summary:hover {
-        background-color: #e2e8f0 !important;
+        background-color: #fde6b6 !important;
     }
-    /* 内部所有文本元素颜色强制深色 */
+    /* 卡片内所有文本强制深色（棕色系） */
     .stExpander, .stExpander p, .stExpander span, .stExpander label, 
     .stExpander div, .stExpander .stMarkdown, .stExpander .stMetric label,
     .stExpander .stMetric .stMetricValue, .stExpander .stCaption {
-        color: #1e293b !important;
+        color: #3a3530 !important;
     }
-    /* 指标卡片的数值和标签 */
+    /* 指标卡片的数值和标签额外强调 */
     .stExpander .stMetric label {
-        color: #475569 !important;
+        color: #6b5e4e !important;
+        font-size: 0.8rem !important;
     }
     .stExpander .stMetric .stMetricValue {
-        color: #0f172a !important;
-        font-weight: 600 !important;
+        color: #2d2a24 !important;
+        font-weight: 700 !important;
+        font-size: 1.2rem !important;
     }
-    /* 按钮文字颜色（保持可读） */
+    /* 按钮样式：浅米色背景，深色文字 */
     .stExpander button {
-        color: #0f172a !important;
-        background-color: #f1f5f9 !important;
-        border: 1px solid #cbd5e1 !important;
+        color: #3a3530 !important;
+        background-color: #fef0d5 !important;
+        border: 1px solid #e6d3b0 !important;
+        border-radius: 8px !important;
+        font-weight: 500 !important;
     }
     .stExpander button:hover {
-        background-color: #e2e8f0 !important;
+        background-color: #fde6b6 !important;
+        border-color: #d4bc8a !important;
     }
     /* 数字输入框背景和文字 */
     .stExpander .stNumberInput input {
         background-color: #ffffff !important;
-        color: #0f172a !important;
-        border: 1px solid #cbd5e1 !important;
+        color: #2d2a24 !important;
+        border: 1px solid #e6d3b0 !important;
+        border-radius: 8px !important;
     }
-    /* 成功/错误消息背景调整 */
+    .stExpander .stNumberInput input:focus {
+        border-color: #d4bc8a !important;
+        box-shadow: 0 0 0 1px #d4bc8a !important;
+    }
+    /* 成功/错误/警告消息框背景 */
     .stExpander .stAlert {
-        background-color: #f8fafc !important;
-        color: #0f172a !important;
+        background-color: #fefcf5 !important;
+        border-left-color: #d4bc8a !important;
+        color: #3a3530 !important;
     }
+    /* 步骤指示器使用的 emoji 无需额外样式，但保持可见 */
 </style>
 """, unsafe_allow_html=True)
 
