@@ -249,7 +249,7 @@ def update_task_to_next_operation(df, index, today):
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
-    """为指定 Job 生成甘特图（Y轴显示子部件+Job号，X轴在顶部，显示日期、周数、月份）"""
+    """为指定 Job 生成甘特图，Y轴标签格式：JobNum/Asm - Subpart Part Num，并按 JobNum/Asm 排序（-0, -1, -2...）"""
     job_df = df[df['_job_base'] == job_base].copy()
     if job_df.empty:
         return None
@@ -258,9 +258,8 @@ def create_gantt_for_job(df, job_base, today):
     job_df['Planned Date'] = pd.to_datetime(job_df['Planned Date'], errors='coerce')
     job_df['ETA'] = pd.to_datetime(job_df['ETA'], errors='coerce')
     
-    # 确定开始日期：优先使用 Planned Date，若无效则使用今天
+    # 确定开始日期
     job_df['Start'] = job_df['Planned Date'].fillna(pd.Timestamp(today))
-    # 结束日期 = ETA，若无效则使用今天+1天
     job_df['Finish'] = job_df['ETA'].fillna(pd.Timestamp(today) + pd.Timedelta(days=1))
     # 确保 Finish 不早于 Start
     mask = job_df['Finish'] < job_df['Start']
@@ -273,8 +272,11 @@ def create_gantt_for_job(df, job_base, today):
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
     
-    # 创建 Y 轴标签：Subpart Part Num + (JobNum/Asm)
-    job_df['Task'] = job_df['Subpart Part Num'] + ' (' + job_df['JobNum/Asm'].astype(str) + ')'
+    # 创建 Y 轴标签：JobNum/Asm - Subpart Part Num
+    job_df['Task'] = job_df['JobNum/Asm'].astype(str) + ' - ' + job_df['Subpart Part Num']
+    
+    # 按 JobNum/Asm 排序（确保 -0 在主部件，-1, -2 依次）
+    job_df = job_df.sort_values('JobNum/Asm')
     
     # 创建甘特图
     fig = px.timeline(
@@ -292,7 +294,7 @@ def create_gantt_for_job(df, job_base, today):
             'JobNum/Asm': True
         },
         title=f"Gantt Chart for Job {job_base} (All Subparts)",
-        labels={'Task': 'Subpart (JobNum/Asm)', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
+        labels={'Task': 'Subpart (JobNum/Asm - Part)', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
     # 添加当前日期垂直线
@@ -313,21 +315,17 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # 修改 X 轴：移到顶部，并设置刻度格式（显示日期、月份缩写、周数）
-    fig.update_layout(
-    xaxis=dict(
+    # X 轴移到顶部，并设置刻度格式（显示日期、周数）
+    fig.update_xaxis(
         side='top',
         tickformat='%b %d\nWeek %W',
         title='Date / Week'
     )
-)
     
-    # Y 轴反转，让第一个任务在最上面
+    # Y 轴反转，让第一个任务（通常是 -0）在最上面
     fig.update_yaxes(autorange="reversed")
     
-    # 调整高度
-    fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="", yaxis_title="Subpart")
-    
+    fig.update_layout(height=max(400, len(job_df)*30))
     return fig
 
 # ========== Main interface ==========
