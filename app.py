@@ -249,7 +249,6 @@ def update_task_to_next_operation(df, index, today):
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
-    """为指定 Job 生成甘特图，X轴自定义四行标签（Week/周首日期/日期/星期缩写）"""
     job_df = df[df['_job_base'] == job_base].copy()
     if job_df.empty:
         return None
@@ -276,7 +275,6 @@ def create_gantt_for_job(df, job_base, today):
     job_df['Remaining Days'] = remaining_days
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
-    
     job_df['Task'] = job_df['JobNum/Asm'].astype(str) + ' - ' + job_df['Subpart Part Num'].astype(str)
     
     fig = px.timeline(
@@ -298,15 +296,13 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # 强制 Y 轴顺序
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=job_df['Task'].tolist(),
         autorange='reversed'
     )
     
-    # 添加今天垂直线
-    from datetime import datetime as dt
+    from datetime import datetime as dt, timedelta
     today_dt = dt.combine(today, dt.min.time())
     fig.add_shape(
         type='line',
@@ -323,39 +319,36 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # --- 自定义 X 轴四行标签 ---
-    # 确定日期范围
-    all_starts = job_df['Start']
-    all_finishes = job_df['Finish']
-    min_date = all_starts.min().floor('D')
-    max_date = all_finishes.max().ceil('D')
-    # 生成每天一个刻度
+    # 计算日期范围
+    min_date = job_df['Start'].min().floor('D')
+    max_date = job_df['Finish'].max().ceil('D')
     date_range = pd.date_range(start=min_date, end=max_date, freq='D')
+    tick_vals = date_range.to_pydatetime().tolist()
     
-    tickvals = []
-    ticktexts = []
+    # 构建四行标签
+    tick_texts = []
     for d in date_range:
-        # 计算周数（使用周一为一周开始）
-        week_num = d.strftime('%W')  # 00-53，周一为一周开始
-        # 计算该周第一天的日期（周一）
-        week_start = d - pd.Timedelta(days=d.weekday())
-        # 构造四行文本
-        text = f"Week {week_num}<br>{week_start.strftime('%b %d')}<br>{d.day}<br>{d.strftime('%a')[0]}"
-        tickvals.append(d)
-        ticktexts.append(text)
+        week_num = d.isocalendar()[1]
+        week_start = d - timedelta(days=d.weekday())
+        week_start_str = week_start.strftime('%b %d')
+        day_num = d.day  # 数字
+        weekday_letter = d.strftime('%a')[0]  # M T W T F S S
+        # 使用 <br> 换行
+        text = f"Week {week_num}<br>{week_start_str}<br>{day_num}<br>{weekday_letter}"
+        tick_texts.append(text)
     
-    fig.update_xaxis(
-        tickvals=tickvals,
-        ticktext=ticktexts,
-        tickangle=0,
-        side='top',
-        tickfont=dict(size=10)
-    )
-    
-    # 调整布局高度和边距
+    # 更新X轴布局
     fig.update_layout(
+        xaxis=dict(
+            side='top',
+            tickvals=tick_vals,
+            ticktext=tick_texts,
+            tickangle=0,
+            tickfont=dict(size=9),
+            title=''
+        ),
         height=max(500, len(job_df)*35),
-        margin=dict(t=120, b=10, l=10, r=10),
+        margin=dict(t=120, b=60, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
