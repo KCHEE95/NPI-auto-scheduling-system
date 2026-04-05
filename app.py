@@ -728,31 +728,24 @@ if uploaded_file is not None:
         st.subheader("📊 Global Job Progress Board")
         st.caption("Overview of all Jobs: estimated finish dates, progress, bottleneck departments, and more.")
         
-        # 计算每个子部件的完成度（用于进度百分比）
-        # 定义已完成：Current Operation == 'COMPLETED'
-        df['_is_completed'] = df['Current Operation'] == 'COMPLETED'
-        
         # 按 _job_base 分组聚合
         job_group = df.groupby('_job_base').agg({
-            'Subpart Part Num': 'count',  # 总子部件数
-            '_is_completed': 'sum',       # 已完成子部件数
-            'ETA': lambda x: x.max(),     # 主部件 ETA
-            'Status': lambda x: (x == '✅ On track').sum(),  # 按时子部件数（仅用于显示）
+            'Subpart Part Num': 'count',
+            'ETA': lambda x: x.max(),
+            'Status': lambda x: (x == '✅ On track').sum(),
             'Current Dept': lambda x: x.mode()[0] if not x.empty else 'Unknown',
             'Exwork Date': lambda x: x.max(),
             'JobNum/Asm': lambda x: next(iter(x), '')
         }).reset_index()
-        job_group.columns = ['Job', 'Subpart Count', 'Completed Count', 'Main Part ETA', 'On Track Count', 'Bottleneck Dept', 'Exwork Date', 'Sample JobNum']
+        job_group.columns = ['Job', 'Subpart Count', 'Main Part ETA', 'On Track Count', 'Bottleneck Dept', 'Exwork Date', 'Sample JobNum']
         job_group['Delayed Count'] = job_group['Subpart Count'] - job_group['On Track Count']
-        # 进度百分比 = 已完成子部件数 / 总子部件数 * 100
-        job_group['Progress %'] = (job_group['Completed Count'] / job_group['Subpart Count'] * 100).round(1).fillna(0)
+        job_group['Progress %'] = (job_group['On Track Count'] / job_group['Subpart Count'] * 100).round(1).fillna(0)
         
         # 确保日期列为 datetime 类型
         job_group['Main Part ETA'] = pd.to_datetime(job_group['Main Part ETA'], errors='coerce')
         job_group['Exwork Date'] = pd.to_datetime(job_group['Exwork Date'], errors='coerce')
         
-        today_ts = pd.Timestamp(datetime.now().date())
-        job_group['Delayed Job'] = job_group['Main Part ETA'].apply(lambda x: x < today_ts if pd.notna(x) else False)
+        # 排序
         job_group = job_group.sort_values('Main Part ETA')
         
         col1, col2, col3 = st.columns(3)
@@ -760,7 +753,7 @@ if uploaded_file is not None:
         col2.metric("Jobs with Delayed Subparts", len(job_group[job_group['Delayed Count'] > 0]))
         col3.metric("Fully On Track Jobs", len(job_group[job_group['Delayed Count'] == 0]))
         
-        display_cols = ['Job', 'Sample JobNum', 'Subpart Count', 'Completed Count', 'Progress %', 'Main Part ETA', 'Delayed Count', 'Bottleneck Dept', 'Exwork Date']
+        display_cols = ['Job', 'Sample JobNum', 'Subpart Count', 'Progress %', 'Main Part ETA', 'Delayed Count', 'Bottleneck Dept', 'Exwork Date']
         display_df = job_group[display_cols].copy()
         display_df['Main Part ETA'] = display_df['Main Part ETA'].dt.strftime('%Y-%m-%d')
         display_df['Exwork Date'] = display_df['Exwork Date'].dt.strftime('%Y-%m-%d')
@@ -768,7 +761,6 @@ if uploaded_file is not None:
             'Job': 'Job Base',
             'Sample JobNum': 'JobNum/Asm (Sample)',
             'Subpart Count': 'Subparts',
-            'Completed Count': 'Completed',
             'Progress %': 'Progress (%)',
             'Main Part ETA': 'Est. Finish Date',
             'Delayed Count': 'Delayed Subparts',
@@ -777,35 +769,48 @@ if uploaded_file is not None:
         st.dataframe(display_df, use_container_width=True, height=400)
         
         st.subheader("Quick Actions")
-        selected_job_for_action = st.selectbox("Select Job to view details", job_group['Job'].tolist(), key="job_action_select")
-        
+        selected_job_for_action = st.selectbox("Select Job to view details", job_group['Job'].tolist())
         col_gantt, col_sales = st.columns(2)
-        with col_gantt:
-            if st.button("Show Gantt Chart for this Job"):
-                st.session_state['show_gantt_for_job'] = selected_job_for_action
-        with col_sales:
-            if st.button("Show Sales Summary for this Job"):
-                st.session_state['show_sales_for_job'] = selected_job_for_action
         
-        # 显示甘特图
-        if 'show_gantt_for_job' in st.session_state and st.session_state.show_gantt_for_job:
-            job_to_show = st.session_state.show_gantt_for_job
-            st.markdown(f"### Gantt Chart for Job {job_to_show}")
-            fig = create_gantt_for_job(df, job_to_show, datetime.now().date())
-            if fig:
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.warning("No data for this Job")
-            if st.button("Close Gantt Chart"):
-                del st.session_state.show_gantt_for_job
+        # 使用 session_state 存储当前要显示的图表类型和对应的 Job
+        if 'show_gantt' not in st.session_state:
+            st.session_state.show_gantt = False
+            st.session_state.show_sales = False
+            st.session_state.gantt_job = None
+            st.session_state.sales_job = None
+        
+        with col_gantt:
+            if st.button("View Gantt Chart for this Job"):
+                st.session_state.show_gantt = True
+                st.session_state.show_sales = False
+                st.session_state.gantt_job = selected_job_for_action
+                st.session_state.sales_job = None
+                st.rerun()
+        with col_sales:
+            if st.button("View Sales Summary for this Job"):
+                st.session_state.show_sales = True
+                st.session_state.show_gantt = False
+                st.session_state.sales_job = selected_job_for_action
+                st.session_state.gantt_job = None
                 st.rerun()
         
-        # 显示销售摘要
-        if 'show_sales_for_job' in st.session_state and st.session_state.show_sales_for_job:
-            job_to_show = st.session_state.show_sales_for_job
-            st.markdown(f"### Sales Summary for Job {job_to_show}")
-            # 重用销售查询的逻辑，但只针对该 job
-            result = df[df['_job_base'] == job_to_show].copy()
+        # 显示甘特图（如果请求）
+        if st.session_state.show_gantt and st.session_state.gantt_job:
+            st.markdown("---")
+            st.subheader(f"📅 Gantt Chart for Job {st.session_state.gantt_job}")
+            fig = create_gantt_for_job(df, st.session_state.gantt_job, datetime.now().date())
+            if fig:
+                # 使用唯一 key 避免重复 ID
+                st.plotly_chart(fig, use_container_width=True, key=f"gantt_{st.session_state.gantt_job}")
+            else:
+                st.warning("Could not generate Gantt chart.")
+        
+        # 显示销售摘要（如果请求）
+        if st.session_state.show_sales and st.session_state.sales_job:
+            st.markdown("---")
+            st.subheader(f"📊 Sales Summary for Job {st.session_state.sales_job}")
+            # 复用销售查询的逻辑，但显示在 tab7 内
+            result = df[df['_job_base'] == st.session_state.sales_job].copy()
             if not result.empty:
                 def extract_suffix(job_num):
                     match = re.search(r'-(\d+)$', str(job_num))
@@ -827,29 +832,21 @@ if uploaded_file is not None:
                 exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
                 dept_counts = result['Current Dept'].value_counts()
                 bottleneck_dept = dept_counts.index[0] if not dept_counts.empty else 'None'
-                delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
                 
-                st.markdown("#### Summary")
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Subparts", total_subparts)
-                col1.metric("On Track", on_track)
-                col1.metric("Delayed", delayed)
-                col2.metric("Main Part Est. Finish", main_eta)
-                col3.metric("Exwork Date", exwork_date)
-                col3.metric("Bottleneck Dept", bottleneck_dept)
-                if not delayed_depts.empty:
-                    st.warning(f"Delayed tasks in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
+                col2.metric("On Track", on_track)
+                col3.metric("Delayed", delayed)
+                st.info(f"**Main Part Est. Finish:** {main_eta}  |  **Exwork Date:** {exwork_date}  |  **Bottleneck Dept:** {bottleneck_dept}")
                 
                 st.markdown("#### Subpart Details")
-                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 'ETA', 'Status', 'Exwork Date']
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
                 display_cols = [c for c in display_cols if c in result.columns]
                 result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
                 st.dataframe(result_display, use_container_width=True)
             else:
-                st.warning("No data found for this Job")
-            if st.button("Close Sales Summary"):
-                del st.session_state.show_sales_for_job
-                st.rerun()
+                st.warning("No data found for this Job.")
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
