@@ -457,31 +457,84 @@ if uploaded_file is not None:
         if not overload.empty:
             st.error(f"⚠️ Overloaded departments: {', '.join(overload['Department'].tolist())}")
     
-    with tab4:
+        with tab4:
         st.subheader("Quick sales query")
+        st.caption("Enter Job Number (e.g., 525651) or Subpart Part Number. Results are sorted by subpart suffix (-0, -1, -2...). AI summary shows overall status.")
         search_term = st.text_input("Enter Main Part Num, Subpart Part Num, or JobNum/Asm (supports partial match)")
+        
         if search_term:
+            # 筛选匹配的行
             mask = (df['Main Part Num'].str.contains(search_term, case=False, na=False) |
                     df['Subpart Part Num'].str.contains(search_term, case=False, na=False) |
                     df['JobNum/Asm'].astype(str).str.contains(search_term, case=False, na=False))
-            result = df[mask]
+            result = df[mask].copy()
+            
             if not result.empty:
-                for _, row in result.iterrows():
-                    eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'
-                    planned_str = row['Planned Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Planned Date')) else 'Not set'
-                    exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else 'Not set'
-                    st.info(f"**{row['Subpart Part Num']}**  \n"
-                            f"- JobNum/Asm: {row['JobNum/Asm']}  \n"
-                            f"- Nesting Num: {row['Nesting Num']}  \n"
-                            f"- Planned Date: {planned_str}  \n"
-                            f"- Current Operation: {row['Current Operation']}  \n"
-                            f"- Next Operation: {row.get('Next Operation', '')}  \n"
-                            f"- Department: {row['Current Dept']}  \n"
-                            f"- Est. Finish Date: {eta_str}  \n"
-                            f"- Exwork Date (Delivery): {exwork_str}  \n"
-                            f"- Subpart Qty: {row.get('Subpart Qty', '')}  \n"
-                            f"- Material: {row.get('Mtl 10', '')}  \n"
-                            f"- Status: {row['Status']}")
+                # 提取排序键：后缀数字
+                import re
+                def extract_suffix(job_num):
+                    match = re.search(r'-(\d+)$', str(job_num))
+                    if match:
+                        return int(match.group(1))
+                    return 0
+                result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
+                result = result.sort_values('_sort_key').drop(columns=['_sort_key'])
+                
+                # 生成AI摘要（基于统计）
+                # 获取该Job的基础编号（如果搜索词本身是Job基础编号，则取之；否则从结果中提取共同基础编号）
+                # 简单起见，取第一个JobNum/Asm的基础编号
+                first_job = result.iloc[0]['JobNum/Asm']
+                job_base = re.match(r'^([^-]+)', str(first_job)).group(1) if pd.notna(first_job) else search_term
+                
+                # 统计各部门任务数
+                dept_counts = result['Current Dept'].value_counts()
+                # 找出最慢的部门（任务数最多或者ETA最晚？这里简单取任务数最多的部门作为瓶颈）
+                bottleneck_dept = dept_counts.idxmax() if not dept_counts.empty else 'Unknown'
+                # 找出主部件（-0）的ETA
+                main_part = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
+                if not main_part.empty:
+                    main_eta = main_part.iloc[0]['ETA']
+                    main_eta_str = main_eta.strftime('%Y-%m-%d') if pd.notna(main_eta) else 'Not set'
+                else:
+                    # 如果没有主部件，取所有子部件的最晚ETA
+                    main_eta = result['ETA'].max()
+                    main_eta_str = main_eta.strftime('%Y-%m-%d') if pd.notna(main_eta) else 'Not set'
+                # Exwork Date（取第一个非空）
+                exwork_date = result['Exwork Date'].dropna().iloc[0] if not result['Exwork Date'].dropna().empty else None
+                exwork_str = exwork_date.strftime('%Y-%m-%d') if exwork_date else 'Not set'
+                
+                # 统计已完成/进行中
+                total = len(result)
+                delayed = len(result[result['Status'] == '⚠️ Delayed'])
+                on_track = total - delayed
+                
+                # 构建摘要
+                summary = f"""
+                **📊 AI Summary for Job {job_base}**  
+                - Total subparts: **{total}**  
+                - On track: **{on_track}** | Delayed: **{delayed}**  
+                - Main part estimated finish date: **{main_eta_str}**  
+                - Exwork (Delivery) date: **{exwork_str}**  
+                - Current bottleneck department: **{bottleneck_dept}** (most subparts waiting)  
+                - Subparts stuck in each department:  
+                """
+                for dept, count in dept_counts.items():
+                    summary += f"  - {dept}: {count}\n"
+                
+                st.info(summary)
+                
+                # 显示详细表格，按后缀排序
+                st.subheader("Detailed subpart list (sorted by -0, -1, -2...)")
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
+                display_cols = [c for c in display_cols if c in result.columns]
+                # 格式化日期
+                result_display = result[display_cols].copy()
+                for col in ['ETA', 'Exwork Date']:
+                    if col in result_display.columns:
+                        result_display[col] = pd.to_datetime(result_display[col], errors='coerce').dt.strftime('%Y-%m-%d')
+                st.dataframe(result_display, use_container_width=True)
+                
             else:
                 st.warning("No matching Part or Job found")
     
