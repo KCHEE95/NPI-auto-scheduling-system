@@ -462,7 +462,6 @@ if uploaded_file is not None:
         st.info("💡 Enter a Job Number (e.g., 525651) to see summary and sorted subpart list.")
         search_term = st.text_input("Enter Job Number (Base) or Subpart Part Num", key="sales_query")
         if search_term:
-            # 筛选匹配的行
             mask = (df['_job_base'].astype(str).str.contains(search_term, case=False, na=False) |
                     df['Subpart Part Num'].str.contains(search_term, case=False, na=False))
             result = df[mask].copy()
@@ -492,10 +491,10 @@ if uploaded_file is not None:
                 else:
                     main_eta = 'No main part'
                     main_dept = 'N/A'
-                # 出货日期 (Exwork Date)
+                # 出货日期 (Exwork Date) - 取最大值（最晚出货日期）
                 exwork_dates = result['Exwork Date'].dropna()
                 exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
-                # 瓶颈部门：统计各子部件当前部门出现次数最多的
+                # 瓶颈部门
                 dept_counts = result['Current Dept'].value_counts()
                 if not dept_counts.empty:
                     bottleneck_dept = dept_counts.index[0]
@@ -503,22 +502,21 @@ if uploaded_file is not None:
                 else:
                     bottleneck_dept = 'None'
                     bottleneck_count = 0
-                # 卡住的部门（延期任务的部门）
                 delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
                 
-                # 显示摘要
+                # 显示摘要 - 增加 Exwork Date 单独卡片
                 st.markdown("### 📊 Job Summary")
-                col1, col2, col3 = st.columns(3)
+                col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Subparts", total_subparts)
                 col1.metric("On Track", on_track, delta=None)
                 col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
                 col2.metric("Main Part Est. Finish", main_eta)
-                col2.metric("Exwork Date (Delivery)", exwork_date)
-                col3.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
+                col3.metric("📦 Exwork Date (Delivery)", exwork_date)   # 突出显示
+                col4.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
                 if not delayed_depts.empty:
                     st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
                 
-                # 显示详细列表
+                # 显示详细列表（包含 Exwork Date 列）
                 st.markdown("### 📋 Subpart Details (sorted by -0, -1, -2...)")
                 display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
                                 'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
@@ -526,7 +524,6 @@ if uploaded_file is not None:
                 result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
                 st.dataframe(result_display, use_container_width=True)
                 
-                # 可选：显示每个子部件的完整工序链
                 with st.expander("🔍 View full operation chain for each subpart"):
                     for _, row in result.iterrows():
                         if row['_steps']:
