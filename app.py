@@ -440,19 +440,53 @@ if uploaded_file is not None:
                             'Current Operation', 'Next Operation', 'Planned Date', 'ETA', 'Status', 'Assigned Eng',
                             'Exwork Date', 'Subpart Qty', 'Mtl 10']
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
-            for idx, row in filtered_df.iterrows():
+                       for idx, row in filtered_df.iterrows():
+                # 计算进度百分比
+                steps = row['_steps']
+                current_op = row['Current Operation']
+                if steps and current_op not in ['COMPLETED', ''] and current_op in steps:
+                    current_idx = steps.index(current_op)
+                    progress_pct = int((current_idx / len(steps)) * 100)
+                    remaining_steps = len(steps) - current_idx - 1
+                elif current_op == 'COMPLETED':
+                    progress_pct = 100
+                    remaining_steps = 0
+                else:
+                    progress_pct = 0
+                    remaining_steps = len(steps)
+                
+                # 卡片式布局
                 with st.container():
-                    # 三列布局：任务信息 | Complete按钮 | 校准
-                    col_a, col_b, col_c = st.columns([0.7, 0.15, 0.15])
-                    with col_a:
-                        row_data = {col: row[col] for col in cols_to_show}
-                        if 'ETA' in row_data:
-                            row_data['Est. Finish Date'] = row_data.pop('ETA').strftime('%Y-%m-%d') if pd.notna(row_data['ETA']) else ''
-                        if 'Planned Date' in row_data and pd.notna(row_data['Planned Date']):
-                            row_data['Planned Date'] = row_data['Planned Date'].strftime('%Y-%m-%d')
-                        st.write(pd.DataFrame([row_data]).T)
-                    with col_b:
-                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}"):
+                    st.markdown(
+                        f"""
+                        <div style="background-color: #f9f9f9; border-radius: 10px; padding: 12px; margin-bottom: 12px; border-left: 5px solid {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <strong style="font-size: 1.05rem;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
+                                <span style="background-color: {'#d4edda' if row['Status'] == '✅ On track' else '#f8d7da'}; color: {'#155724' if row['Status'] == '✅ On track' else '#721c24'}; padding: 2px 8px; border-radius: 20px; font-size: 0.8rem;">{row['Status']}</span>
+                            </div>
+                            <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px;">
+                                <div><span style="color: #6c757d;">🔧 Current Op:</span> <strong>{row['Current Operation']}</strong></div>
+                                <div><span style="color: #6c757d;">🏭 Dept:</span> <strong>{row['Current Dept']}</strong></div>
+                                <div><span style="color: #6c757d;">📅 Est. Finish:</span> <strong>{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
+                                <div><span style="color: #6c757d;">📦 Exwork:</span> <strong>{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
+                            </div>
+                            <div style="margin-top: 12px;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #6c757d;">
+                                    <span>Progress</span>
+                                    <span>{progress_pct}% · {remaining_steps} steps remaining</span>
+                                </div>
+                                <div style="background-color: #e9ecef; border-radius: 20px; overflow: hidden; height: 6px;">
+                                    <div style="width: {progress_pct}%; background-color: {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; height: 6px;"></div>
+                                </div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                    # 操作按钮区：Complete & Next 和 Calibration 并排
+                    col_btn, col_cal = st.columns([1, 1])
+                    with col_btn:
+                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
                             today = datetime.now().date()
                             updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
                             if success:
@@ -461,11 +495,11 @@ if uploaded_file is not None:
                                 st.rerun()
                             else:
                                 st.error(f"Failed: {message}")
-                    with col_c:
+                    with col_cal:
                         op = row['Current Operation']
                         if op not in ['COMPLETED', '']:
-                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed")
-                            if st.button(f"Calibrate", key=f"calib_{idx}"):
+                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed", placeholder="Hours")
+                            if st.button(f"Calibrate", key=f"calib_{idx}", use_container_width=True):
                                 if actual_hours > 0:
                                     old_days = get_lead_time(op)
                                     old_hours = old_days * 10
@@ -473,13 +507,12 @@ if uploaded_file is not None:
                                     new_days = new_hours / 10
                                     st.session_state.lead_time_override[op] = new_days
                                     st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
-                                    # 重新加载数据以更新 ETA（需要重新计算）
                                     st.rerun()
                                 else:
                                     st.warning("Enter actual hours first")
                         else:
-                            st.write("Completed")
-                st.divider()
+                            st.write("✅ Completed")
+                st.markdown("---")
         
         if st.button("📥 Download updated Excel (with progress changes)"):
             output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
