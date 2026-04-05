@@ -741,6 +741,10 @@ if uploaded_file is not None:
         job_group['Delayed Count'] = job_group['Subpart Count'] - job_group['On Track Count']
         job_group['Progress %'] = (job_group['On Track Count'] / job_group['Subpart Count'] * 100).round(1)
         
+        # 确保日期列为 datetime 类型
+        job_group['Main Part ETA'] = pd.to_datetime(job_group['Main Part ETA'], errors='coerce')
+        job_group['Exwork Date'] = pd.to_datetime(job_group['Exwork Date'], errors='coerce')
+        
         today = datetime.now().date()
         job_group['Delayed Job'] = job_group['Main Part ETA'].apply(lambda x: x < today if pd.notna(x) else False)
         job_group = job_group.sort_values('Main Part ETA')
@@ -752,6 +756,7 @@ if uploaded_file is not None:
         
         display_cols = ['Job', 'Sample JobNum', 'Subpart Count', 'Progress %', 'Main Part ETA', 'Delayed Count', 'Bottleneck Dept', 'Exwork Date']
         display_df = job_group[display_cols].copy()
+        # 格式化日期显示
         display_df['Main Part ETA'] = display_df['Main Part ETA'].dt.strftime('%Y-%m-%d')
         display_df['Exwork Date'] = display_df['Exwork Date'].dt.strftime('%Y-%m-%d')
         display_df = display_df.rename(columns={
@@ -771,12 +776,12 @@ if uploaded_file is not None:
         with col_gantt:
             if st.button("View Gantt Chart for this Job"):
                 st.session_state['selected_job_gantt'] = selected_job_for_action
-                st.session_state['active_tab'] = 4  # 甘特图 tab 索引
+                st.session_state['active_tab'] = 4
                 st.rerun()
         with col_sales:
             if st.button("View Sales Summary for this Job"):
                 st.session_state['selected_job_sales'] = selected_job_for_action
-                st.session_state['active_tab'] = 3  # 销售查询 tab 索引
+                st.session_state['active_tab'] = 3
                 st.rerun()
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
