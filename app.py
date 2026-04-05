@@ -319,36 +319,45 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # 计算日期范围
+    # 计算日期范围并生成每周一的刻度
     min_date = job_df['Start'].min().floor('D')
     max_date = job_df['Finish'].max().ceil('D')
-    date_range = pd.date_range(start=min_date, end=max_date, freq='D')
-    tick_vals = date_range.to_pydatetime().tolist()
+    # 找到第一个周一
+    start_weekday = min_date.weekday()  # Monday=0
+    first_monday = min_date - timedelta(days=start_weekday)
+    # 找到最后一个周日
+    end_weekday = max_date.weekday()
+    last_sunday = max_date + timedelta(days=(6 - end_weekday))
+    # 生成所有周一
+    mondays = pd.date_range(start=first_monday, end=last_sunday, freq='W-MON')
+    tick_vals = [m.to_pydatetime() for m in mondays]
     
-    # 构建四行标签
     tick_texts = []
-    for d in date_range:
-        week_num = d.isocalendar()[1]
-        week_start = d - timedelta(days=d.weekday())
-        week_start_str = week_start.strftime('%b %d')
-        day_num = d.day  # 数字
-        weekday_letter = d.strftime('%a')[0]  # M T W T F S S
-        # 使用 <br> 换行
-        text = f"Week {week_num}<br>{week_start_str}<br>{day_num}<br>{weekday_letter}"
+    for m in mondays:
+        week_num = m.isocalendar()[1]
+        week_start_str = m.strftime('%d-%b-%y')
+        days = []
+        weekdays = []
+        for i in range(7):
+            d = m + timedelta(days=i)
+            days.append(str(d.day))
+            weekdays.append(d.strftime('%a')[0])
+        days_str = '|'.join(days)
+        weekdays_str = '|'.join(weekdays)
+        text = f"Week {week_num}<br>{week_start_str}<br>{days_str}<br>{weekdays_str}"
         tick_texts.append(text)
     
-    # 更新X轴布局
     fig.update_layout(
         xaxis=dict(
             side='top',
             tickvals=tick_vals,
             ticktext=tick_texts,
             tickangle=0,
-            tickfont=dict(size=9),
+            tickfont=dict(size=8),
             title=''
         ),
         height=max(500, len(job_df)*35),
-        margin=dict(t=120, b=60, l=10, r=10),
+        margin=dict(t=140, b=60, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
