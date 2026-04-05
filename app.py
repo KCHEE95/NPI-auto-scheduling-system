@@ -442,97 +442,87 @@ if uploaded_file is not None:
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
             
             for idx, row in filtered_df.iterrows():
-                # 计算进度百分比
+                # 计算进度相关
                 steps = row['_steps']
                 current_op = row['Current Operation']
                 if steps and current_op not in ['COMPLETED', ''] and current_op in steps:
                     current_idx = steps.index(current_op)
-                    progress_pct = int((current_idx / len(steps)) * 100)
-                    remaining_steps = len(steps) - current_idx - 1
+                    total_steps = len(steps)
+                    remaining_steps = total_steps - current_idx - 1
                 elif current_op == 'COMPLETED':
-                    progress_pct = 100
+                    current_idx = len(steps) - 1 if steps else 0
+                    total_steps = len(steps)
                     remaining_steps = 0
                 else:
-                    progress_pct = 0
-                    remaining_steps = len(steps)
+                    current_idx = -1
+                    total_steps = len(steps)
+                    remaining_steps = total_steps
                 
-                # 卡片式布局
+                # 构建步骤指示器字符
+                step_chars = []
+                for i in range(total_steps):
+                    if i < current_idx:
+                        step_chars.append("🟩")   # 已完成
+                    elif i == current_idx:
+                        step_chars.append("🔵")   # 当前
+                    else:
+                        step_chars.append("⬜")   # 未完成
+                step_display = " ".join(step_chars)
+                
+                # 卡片容器
                 with st.container():
-                    st.markdown(
-                        f"""
-                        <div style="
-                            background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
-                            border-radius: 16px;
-                            padding: 16px;
-                            margin-bottom: 16px;
-                            box-shadow: 0 4px 12px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
-                            border-left: 6px solid {'#10b981' if row['Status'] == '✅ On track' else '#ef4444'};
-                            transition: transform 0.2s, box-shadow 0.2s;
-                            color: #1e293b;
-                        ">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.3rem;">📦</span>
-                                    <strong style="font-size: 1.05rem; color: #0f172a;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
-                                </div>
-                                <span style="
-                                    background-color: {'#d1fae5' if row['Status'] == '✅ On track' else '#fee2e2'};
-                                    color: {'#065f46' if row['Status'] == '✅ On track' else '#991b1b'};
-                                    padding: 4px 12px;
-                                    border-radius: 40px;
-                                    font-size: 0.75rem;
-                                    font-weight: 600;
-                                    letter-spacing: 0.3px;
-                                ">{row['Status']}</span>
-                            </div>
-                            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 16px;">
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.1rem;">🔧</span>
-                                    <div><span style="color: #475569; font-size: 0.75rem;">CURRENT OP</span><br><strong style="font-size: 0.9rem;">{row['Current Operation']}</strong></div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.1rem;">🏭</span>
-                                    <div><span style="color: #475569; font-size: 0.75rem;">DEPARTMENT</span><br><strong style="font-size: 0.9rem;">{row['Current Dept']}</strong></div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.1rem;">📅</span>
-                                    <div><span style="color: #475569; font-size: 0.75rem;">EST. FINISH</span><br><strong style="font-size: 0.9rem;">{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
-                                </div>
-                                <div style="display: flex; align-items: center; gap: 8px;">
-                                    <span style="font-size: 1.1rem;">🚚</span>
-                                    <div><span style="color: #475569; font-size: 0.75rem;">EXWORK</span><br><strong style="font-size: 0.9rem;">{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
-                                </div>
-                            </div>
-                            
-                            <!-- 步骤指示器 -->
-                            <div style="margin-top: 8px;">
-                                <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
-                                    <span style="font-size: 0.75rem; font-weight: 600; color: #475569;">工序步骤</span>
-                                    <span style="font-size: 0.7rem; color: #64748b;">Step {current_idx+1 if steps else 0} of {len(steps)}</span>
-                                </div>
-                                <div style="display: flex; gap: 6px; align-items: center;">
-                                    {''.join([f'''
-                                    <div style="
-                                        flex: 1;
-                                        height: 10px;
-                                        background-color: {'#10b981' if i < current_idx else ('#3b82f6' if i == current_idx else '#e2e8f0')};
-                                        border-radius: 20px;
-                                        {'border: 1px solid #3b82f6;' if i == current_idx else ''}
-                                        {'opacity: 0.6;' if i > current_idx else ''}
-                                        transition: all 0.2s;
-                                        cursor: default;
-                                    " title="{step}"></div>
-                                    ''' for i, step in enumerate(steps)])}
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.65rem; color: #94a3b8;">
-                                    <span>开始</span>
-                                    <span>当前</span>
-                                    <span>剩余 {remaining_steps} 步</span>
-                                </div>
-                            </div>
-                        </div>
-                        """,
-                        unsafe_allow_html=True
+                    # 使用 st.markdown 实现简单的边框和背景（仅用一次，不复杂）
+                    st.markdown("---")
+                    col_title, col_status = st.columns([3, 1])
+                    with col_title:
+                        st.markdown(f"**📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}**")
+                    with col_status:
+                        status_color = "green" if row['Status'] == '✅ On track' else "red"
+                        st.markdown(f'<span style="color:{status_color}; font-weight:bold;">{row["Status"]}</span>', unsafe_allow_html=True)
+                    
+                    # 关键信息四列
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("🔧 Current Op", row['Current Operation'])
+                    col2.metric("🏭 Dept", row['Current Dept'])
+                    eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'
+                    col3.metric("📅 Est. Finish", eta_str)
+                    exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'
+                    col4.metric("🚚 Exwork", exwork_str)
+                    
+                    # 步骤指示器
+                    st.markdown(f"**工序步骤**  {step_display}  ({current_idx+1}/{total_steps} 步)")
+                    st.caption(f"剩余 {remaining_steps} 个工序")
+                    
+                    # 操作按钮
+                    col_btn, col_cal = st.columns(2)
+                    with col_btn:
+                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
+                            today = datetime.now().date()
+                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
+                            if success:
+                                st.session_state['df'] = updated_df
+                                st.success(f"Task {row['Subpart Part Num']}: {message}")
+                                st.rerun()
+                            else:
+                                st.error(f"Failed: {message}")
+                    with col_cal:
+                        op = row['Current Operation']
+                        if op not in ['COMPLETED', '']:
+                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed", placeholder="Hours")
+                            if st.button(f"Calibrate", key=f"calib_{idx}", use_container_width=True):
+                                if actual_hours > 0:
+                                    old_days = get_lead_time(op)
+                                    old_hours = old_days * 10
+                                    new_hours = 0.7 * old_hours + 0.3 * actual_hours
+                                    new_days = new_hours / 10
+                                    st.session_state.lead_time_override[op] = new_days
+                                    st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
+                                    st.rerun()
+                                else:
+                                    st.warning("Enter actual hours first")
+                        else:
+                            st.write("✅ Completed")
+                    st.markdown("---")
                     )
                     # 操作按钮区：Complete & Next 和 Calibration 并排
                     col_btn, col_cal = st.columns([1, 1])
