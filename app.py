@@ -254,19 +254,24 @@ def create_gantt_for_job(df, job_base, today):
     if job_df.empty:
         return None
     
+    # 确保日期列为 datetime 类型
+    job_df['Planned Date'] = pd.to_datetime(job_df['Planned Date'], errors='coerce')
+    job_df['ETA'] = pd.to_datetime(job_df['ETA'], errors='coerce')
+    
     # 确定开始日期：优先使用 Planned Date，若无效则使用今天
-    job_df['Start'] = job_df['Planned Date']
-    job_df['Start'] = job_df['Start'].fillna(today)
-    # 结束日期 = ETA
-    job_df['Finish'] = job_df['ETA']
+    job_df['Start'] = job_df['Planned Date'].fillna(pd.Timestamp(today))
+    # 结束日期 = ETA，若无效则使用今天+1天
+    job_df['Finish'] = job_df['ETA'].fillna(pd.Timestamp(today) + pd.Timedelta(days=1))
     # 确保 Finish 不早于 Start
     mask = job_df['Finish'] < job_df['Start']
-    job_df.loc[mask, 'Finish'] = job_df.loc[mask, 'Start'] + timedelta(days=0.1)
+    job_df.loc[mask, 'Finish'] = job_df.loc[mask, 'Start'] + pd.Timedelta(days=0.1)
     
     # 准备 hover 信息
     job_df['Task'] = job_df['Subpart Part Num']
     job_df['Current Operation'] = job_df['Current Operation'].fillna('None')
-    job_df['Remaining Days'] = (job_df['Finish'] - today).dt.days.clip(lower=0)
+    # 计算剩余天数（基于 Finish 和 today）
+    remaining_days = (job_df['Finish'] - pd.Timestamp(today)).dt.days.clip(lower=0)
+    job_df['Remaining Days'] = remaining_days
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
     
@@ -289,10 +294,10 @@ def create_gantt_for_job(df, job_base, today):
     )
     
     # 添加当前日期垂直线
-    fig.add_vline(x=today, line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
+    fig.add_vline(x=pd.Timestamp(today), line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
     
     # 调整布局
-    fig.update_yaxes(autorange="reversed")  # 让第一个任务显示在最上面
+    fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="Date", yaxis_title="Subpart")
     return fig
 
