@@ -269,7 +269,6 @@ def create_gantt_for_job(df, job_base, today):
     # 准备 hover 信息
     job_df['Task'] = job_df['Subpart Part Num']
     job_df['Current Operation'] = job_df['Current Operation'].fillna('None')
-    # 计算剩余天数（基于 Finish 和 today）
     remaining_days = (job_df['Finish'] - pd.Timestamp(today)).dt.days.clip(lower=0)
     job_df['Remaining Days'] = remaining_days
     job_df['Status'] = job_df['Status']
@@ -293,10 +292,9 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # 添加当前日期垂直线
-    fig.add_vline(x=pd.Timestamp(today), line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
+    # 添加当前日期垂直线 - 使用字符串格式的日期（ISO格式）
+    fig.add_vline(x=today.isoformat(), line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
     
-    # 调整布局
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="Date", yaxis_title="Subpart")
     return fig
