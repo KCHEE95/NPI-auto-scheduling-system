@@ -292,8 +292,23 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # 添加当前日期垂直线 - 使用字符串格式的日期（ISO格式）
-    fig.add_vline(x=today.isoformat(), line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
+    # 添加当前日期垂直线 - 使用 shape 避免 add_vline 的 bug
+    from datetime import datetime as dt
+    today_dt = dt.combine(today, dt.min.time())
+    fig.add_shape(
+        type='line',
+        x0=today_dt, x1=today_dt,
+        y0=0, y1=1,
+        line=dict(color='red', dash='dash'),
+        xref='x', yref='paper'
+    )
+    fig.add_annotation(
+        x=today_dt, y=1,
+        text='Today',
+        showarrow=False,
+        yshift=10,
+        xref='x', yref='paper'
+    )
     
     fig.update_yaxes(autorange="reversed")
     fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="Date", yaxis_title="Subpart")
