@@ -249,7 +249,7 @@ def update_task_to_next_operation(df, index, today):
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
-    """为指定 Job 生成甘特图"""
+    """为指定 Job 生成甘特图（Y轴显示子部件+Job号，X轴在顶部，显示日期、周数、月份）"""
     job_df = df[df['_job_base'] == job_base].copy()
     if job_df.empty:
         return None
@@ -267,12 +267,14 @@ def create_gantt_for_job(df, job_base, today):
     job_df.loc[mask, 'Finish'] = job_df.loc[mask, 'Start'] + pd.Timedelta(days=0.1)
     
     # 准备 hover 信息
-    job_df['Task'] = job_df['Subpart Part Num']
     job_df['Current Operation'] = job_df['Current Operation'].fillna('None')
     remaining_days = (job_df['Finish'] - pd.Timestamp(today)).dt.days.clip(lower=0)
     job_df['Remaining Days'] = remaining_days
     job_df['Status'] = job_df['Status']
     job_df['Dept'] = job_df['Current Dept']
+    
+    # 创建 Y 轴标签：Subpart Part Num + (JobNum/Asm)
+    job_df['Task'] = job_df['Subpart Part Num'] + ' (' + job_df['JobNum/Asm'].astype(str) + ')'
     
     # 创建甘特图
     fig = px.timeline(
@@ -286,13 +288,14 @@ def create_gantt_for_job(df, job_base, today):
             'Remaining Days': True,
             'Status': True,
             'Start': True,
-            'Finish': True
+            'Finish': True,
+            'JobNum/Asm': True
         },
         title=f"Gantt Chart for Job {job_base} (All Subparts)",
-        labels={'Task': 'Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
+        labels={'Task': 'Subpart (JobNum/Asm)', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # 添加当前日期垂直线 - 使用 shape 避免 add_vline 的 bug
+    # 添加当前日期垂直线
     from datetime import datetime as dt
     today_dt = dt.combine(today, dt.min.time())
     fig.add_shape(
@@ -310,8 +313,19 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
+    # 修改 X 轴：移到顶部，并设置刻度格式（显示日期、月份缩写、周数）
+    fig.update_xaxis(
+        side='top',
+        tickformat='%b %d<br>Week %W',   # 例如：Apr 05<br>Week 14
+        title='Date / Week'
+    )
+    
+    # Y 轴反转，让第一个任务在最上面
     fig.update_yaxes(autorange="reversed")
-    fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="Date", yaxis_title="Subpart")
+    
+    # 调整高度
+    fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="", yaxis_title="Subpart")
+    
     return fig
 
 # ========== Main interface ==========
