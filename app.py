@@ -296,13 +296,15 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
+    # Y轴强制按排序顺序
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=job_df['Task'].tolist(),
         autorange='reversed'
     )
     
-    from datetime import datetime as dt, timedelta
+    # 添加Today垂直线
+    from datetime import datetime as dt
     today_dt = dt.combine(today, dt.min.time())
     fig.add_shape(
         type='line',
@@ -319,42 +321,15 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # 计算日期范围并生成每周一的刻度
-    min_date = job_df['Start'].min().floor('D')
-    max_date = job_df['Finish'].max().ceil('D')
-    # 找到第一个周一
-    start_weekday = min_date.weekday()  # Monday=0
-    first_monday = min_date - timedelta(days=start_weekday)
-    # 找到最后一个周日
-    end_weekday = max_date.weekday()
-    last_sunday = max_date + timedelta(days=(6 - end_weekday))
-    # 生成所有周一
-    mondays = pd.date_range(start=first_monday, end=last_sunday, freq='W-MON')
-    tick_vals = [m.to_pydatetime() for m in mondays]
-    
-    tick_texts = []
-    for m in mondays:
-        # 使用 ISO 周数（1-53）
-        week_num = m.isocalendar()[1]
-        week_start_str = m.strftime('%d-%b')
-        # 生成该周每天的数字
-        days = [str((m + timedelta(days=i)).day) for i in range(7)]
-        days_str = '|'.join(days)
-        # 两行：第一行 Week 周数 (起始日期)，第二行 日期数字
-        text = f"Week {week_num} ({week_start_str})<br>{days_str}"
-        tick_texts.append(text)
-    
+    # X轴在顶部，只显示月日（例如 Apr 5）
     fig.update_layout(
         xaxis=dict(
             side='top',
-            tickvals=tick_vals,
-            ticktext=tick_texts,
-            tickangle=0,
-            tickfont=dict(size=8),
+            tickformat='%b %d',   # 月 日
             title=''
         ),
         height=max(500, len(job_df)*35),
-        margin=dict(t=100, b=60, l=10, r=10),
+        margin=dict(t=60, b=60, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
