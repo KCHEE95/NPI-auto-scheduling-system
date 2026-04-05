@@ -460,19 +460,19 @@ if uploaded_file is not None:
                 with st.container():
                     st.markdown(
                         f"""
-                        <div style="background-color: #f9f9f9; border-radius: 10px; padding: 12px; margin-bottom: 12px; border-left: 5px solid {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05);">
+                        <div style="background-color: #f9f9f9; border-radius: 10px; padding: 12px; margin-bottom: 12px; border-left: 5px solid {'#2ecc71' if row['Status'] == '✅ On track' else '#e74c3c'}; box-shadow: 0 1px 2px rgba(0,0,0,0.05); color: #212529;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <strong style="font-size: 1.05rem;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
+                                <strong style="font-size: 1.05rem; color: #212529;">{row['JobNum/Asm']} - {row['Subpart Part Num']}</strong>
                                 <span style="background-color: {'#d4edda' if row['Status'] == '✅ On track' else '#f8d7da'}; color: {'#155724' if row['Status'] == '✅ On track' else '#721c24'}; padding: 2px 8px; border-radius: 20px; font-size: 0.8rem;">{row['Status']}</span>
                             </div>
                             <div style="display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px;">
-                                <div><span style="color: #6c757d;">🔧 Current Op:</span> <strong>{row['Current Operation']}</strong></div>
-                                <div><span style="color: #6c757d;">🏭 Dept:</span> <strong>{row['Current Dept']}</strong></div>
-                                <div><span style="color: #6c757d;">📅 Est. Finish:</span> <strong>{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
-                                <div><span style="color: #6c757d;">📦 Exwork:</span> <strong>{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
+                                <div><span style="color: #495057;">🔧 Current Op:</span> <strong style="color: #212529;">{row['Current Operation']}</strong></div>
+                                <div><span style="color: #495057;">🏭 Dept:</span> <strong style="color: #212529;">{row['Current Dept']}</strong></div>
+                                <div><span style="color: #495057;">📅 Est. Finish:</span> <strong style="color: #212529;">{row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'}</strong></div>
+                                <div><span style="color: #495057;">📦 Exwork:</span> <strong style="color: #212529;">{row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'}</strong></div>
                             </div>
                             <div style="margin-top: 12px;">
-                                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #6c757d;">
+                                <div style="display: flex; justify-content: space-between; font-size: 0.8rem; color: #495057;">
                                     <span>Progress</span>
                                     <span>{progress_pct}% · {remaining_steps} steps remaining</span>
                                 </div>
