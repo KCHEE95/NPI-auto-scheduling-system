@@ -30,7 +30,7 @@ st.title("📊 AI Auto Scheduling & Progress Tracking System")
 st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, alerts, and auto-calibration")
 st.markdown("""
 <style>
-    /* 覆盖 expander 背景为白色，添加圆角和阴影 */
+    /* 强制 expander 卡片白色背景，深色文字 */
     .stExpander {
         background-color: #ffffff !important;
         border-radius: 16px !important;
@@ -38,10 +38,52 @@ st.markdown("""
         margin-bottom: 16px !important;
         border: 1px solid #e2e8f0 !important;
     }
-    /* 调整 expander 标题字体颜色 */
+    /* 标题栏背景浅灰，文字深色 */
     .stExpander summary {
-        font-weight: 600;
-        color: #0f172a;
+        background-color: #f1f5f9 !important;
+        border-radius: 16px 16px 0 0 !important;
+        color: #0f172a !important;
+        font-weight: 600 !important;
+        padding: 12px 16px !important;
+        font-size: 1rem !important;
+    }
+    /* 标题栏 hover 效果 */
+    .stExpander summary:hover {
+        background-color: #e2e8f0 !important;
+    }
+    /* 内部所有文本元素颜色强制深色 */
+    .stExpander, .stExpander p, .stExpander span, .stExpander label, 
+    .stExpander div, .stExpander .stMarkdown, .stExpander .stMetric label,
+    .stExpander .stMetric .stMetricValue, .stExpander .stCaption {
+        color: #1e293b !important;
+    }
+    /* 指标卡片的数值和标签 */
+    .stExpander .stMetric label {
+        color: #475569 !important;
+    }
+    .stExpander .stMetric .stMetricValue {
+        color: #0f172a !important;
+        font-weight: 600 !important;
+    }
+    /* 按钮文字颜色（保持可读） */
+    .stExpander button {
+        color: #0f172a !important;
+        background-color: #f1f5f9 !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    .stExpander button:hover {
+        background-color: #e2e8f0 !important;
+    }
+    /* 数字输入框背景和文字 */
+    .stExpander .stNumberInput input {
+        background-color: #ffffff !important;
+        color: #0f172a !important;
+        border: 1px solid #cbd5e1 !important;
+    }
+    /* 成功/错误消息背景调整 */
+    .stExpander .stAlert {
+        background-color: #f8fafc !important;
+        color: #0f172a !important;
     }
 </style>
 """, unsafe_allow_html=True)
