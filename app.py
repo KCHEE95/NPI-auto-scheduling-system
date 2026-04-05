@@ -33,7 +33,7 @@ LEAD_TIME = {
     'M-BD': 1.5, 'P-GRD': 1.0, 'P-DGR': 0.8, 'P-MK-A': 0.5,
     'F-PT': 0.3, 'P-DMK-A': 0.4, 'F-INK': 0.2, '2-PK-A': 0.3,
     'N-MC': 0.7, 'P-TU-A': 0.6, 'D-TAP-A': 0.4, 'P-PCKLNG': 0.5,
-    'F-NPV1': 0.8, 'ASSY-A': 1.0, 'P-BF': 0.4, 'C-SAW': 0.6,
+    'F-NPV1': 7, 'ASSY-A': 1.0, 'P-BF': 0.4, 'C-SAW': 0.6,
     'DEFAULT': 1.0
 }
 
