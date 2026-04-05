@@ -745,8 +745,9 @@ if uploaded_file is not None:
         job_group['Main Part ETA'] = pd.to_datetime(job_group['Main Part ETA'], errors='coerce')
         job_group['Exwork Date'] = pd.to_datetime(job_group['Exwork Date'], errors='coerce')
         
-        today = datetime.now().date()
-        job_group['Delayed Job'] = job_group['Main Part ETA'].apply(lambda x: x < today if pd.notna(x) else False)
+        # 创建今天的 Timestamp 用于比较
+        today_ts = pd.Timestamp(datetime.now().date())
+        job_group['Delayed Job'] = job_group['Main Part ETA'].apply(lambda x: x < today_ts if pd.notna(x) else False)
         job_group = job_group.sort_values('Main Part ETA')
         
         col1, col2, col3 = st.columns(3)
