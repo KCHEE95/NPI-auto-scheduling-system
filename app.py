@@ -296,14 +296,12 @@ def create_gantt_for_job(df, job_base, today):
         labels={'Task': 'Job - Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
     )
     
-    # Y轴强制按排序顺序
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=job_df['Task'].tolist(),
         autorange='reversed'
     )
     
-    # 添加Today垂直线
     from datetime import datetime as dt
     today_dt = dt.combine(today, dt.min.time())
     fig.add_shape(
@@ -321,15 +319,14 @@ def create_gantt_for_job(df, job_base, today):
         xref='x', yref='paper'
     )
     
-    # X轴在顶部，只显示月日（例如 Apr 5）
     fig.update_layout(
         xaxis=dict(
             side='top',
-            tickformat='%b %d',   # 月 日
+            tickformat='%b %d',
             title=''
         ),
-        height=max(500, len(job_df)*35),
-        margin=dict(t=60, b=60, l=10, r=10),
+        height=max(700, len(job_df)*50),   # 加高：最小700，每行50px
+        margin=dict(t=60, b=80, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
