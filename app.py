@@ -322,15 +322,19 @@ def create_gantt_for_job(df, job_base, today):
     # 计算日期范围并生成每周一的刻度
     min_date = job_df['Start'].min().floor('D')
     max_date = job_df['Finish'].max().ceil('D')
-    start_weekday = min_date.weekday()
+    # 找到第一个周一
+    start_weekday = min_date.weekday()  # Monday=0
     first_monday = min_date - timedelta(days=start_weekday)
+    # 找到最后一个周日
     end_weekday = max_date.weekday()
     last_sunday = max_date + timedelta(days=(6 - end_weekday))
+    # 生成所有周一
     mondays = pd.date_range(start=first_monday, end=last_sunday, freq='W-MON')
     tick_vals = [m.to_pydatetime() for m in mondays]
     
     tick_texts = []
     for m in mondays:
+        # 使用 ISO 周数（1-53）
         week_num = m.isocalendar()[1]
         week_start_str = m.strftime('%d-%b')
         # 生成该周每天的数字
@@ -346,7 +350,7 @@ def create_gantt_for_job(df, job_base, today):
             tickvals=tick_vals,
             ticktext=tick_texts,
             tickangle=0,
-            tickfont=dict(size=9),
+            tickfont=dict(size=8),
             title=''
         ),
         height=max(500, len(job_df)*35),
