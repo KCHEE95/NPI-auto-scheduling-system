@@ -26,7 +26,7 @@ if not check_password():
 
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
-st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, and Gantt chart")
+st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, and alerts")
 
 # ========== Configuration ==========
 LEAD_TIME = {
@@ -254,7 +254,6 @@ def create_gantt_for_job(df, job_base, today):
         return None
     
     def extract_suffix(job_num):
-        import re
         match = re.search(r'-(\d+)$', str(job_num))
         if match:
             return int(match.group(1))
@@ -325,13 +324,13 @@ def create_gantt_for_job(df, job_base, today):
             tickformat='%b %d',
             title=''
         ),
-        height=max(700, len(job_df)*50),   # 加高：最小700，每行50px
+        height=max(700, len(job_df)*50),
         margin=dict(t=60, b=80, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
-    
     return fig
+
 # ========== Main interface ==========
 uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
 
@@ -359,8 +358,15 @@ if uploaded_file is not None:
     
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
-    # ========== 新增第五个 Tab：甘特图 ==========
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query", "📅 Job Gantt Chart", "⚠️ Delayed Alerts"])
+    # ========== 6 Tabs ==========
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+        "📋 All Items",
+        "🏭 Department Workbench",
+        "📈 Capacity Dashboard",
+        "🔍 Sales Query",
+        "📅 Job Gantt Chart",
+        "⚠️ Delayed Alerts"
+    ])
     
     with tab1:
         st.subheader("Real-time status of all subparts")
@@ -466,9 +472,7 @@ if uploaded_file is not None:
                     df['Subpart Part Num'].str.contains(search_term, case=False, na=False))
             result = df[mask].copy()
             if not result.empty:
-                # 按后缀排序
                 def extract_suffix(job_num):
-                    import re
                     match = re.search(r'-(\d+)$', str(job_num))
                     if match:
                         return int(match.group(1))
@@ -476,14 +480,12 @@ if uploaded_file is not None:
                 result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
                 result = result.sort_values('_sort_key')
                 
-                # 生成摘要
                 job_base = search_term
                 if '_job_base' in result.columns:
                     job_base = result.iloc[0]['_job_base']
                 total_subparts = len(result)
                 on_track = len(result[result['Status'] == '✅ On track'])
                 delayed = total_subparts - on_track
-                # 主部件信息
                 main_part_row = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
                 if not main_part_row.empty:
                     main_eta = main_part_row.iloc[0]['ETA'].strftime('%Y-%m-%d') if pd.notna(main_part_row.iloc[0]['ETA']) else 'Unknown'
@@ -491,10 +493,8 @@ if uploaded_file is not None:
                 else:
                     main_eta = 'No main part'
                     main_dept = 'N/A'
-                # 出货日期 (Exwork Date) - 取最大值（最晚出货日期）
                 exwork_dates = result['Exwork Date'].dropna()
                 exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
-                # 瓶颈部门
                 dept_counts = result['Current Dept'].value_counts()
                 if not dept_counts.empty:
                     bottleneck_dept = dept_counts.index[0]
@@ -504,19 +504,17 @@ if uploaded_file is not None:
                     bottleneck_count = 0
                 delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
                 
-                # 显示摘要 - 增加 Exwork Date 单独卡片
                 st.markdown("### 📊 Job Summary")
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Subparts", total_subparts)
                 col1.metric("On Track", on_track, delta=None)
                 col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
                 col2.metric("Main Part Est. Finish", main_eta)
-                col3.metric("📦 Exwork Date (Delivery)", exwork_date)   # 突出显示
+                col3.metric("📦 Exwork Date (Delivery)", exwork_date)
                 col4.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
                 if not delayed_depts.empty:
                     st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
                 
-                # 显示详细列表（包含 Exwork Date 列）
                 st.markdown("### 📋 Subpart Details (sorted by -0, -1, -2...)")
                 display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
                                 'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
@@ -532,13 +530,9 @@ if uploaded_file is not None:
             else:
                 st.warning("No matching Job or Subpart found. Please check the Job Number (e.g., 525651).")
     
-    # ========== 新增甘特图页面 ==========
     with tab5:
         st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
         st.caption("Select a Job to view its Gantt chart. Each bar represents a subpart from Planned Start to Estimated Finish Date. Color indicates current department. The red dashed line marks today.")
-      
-        
-        # 获取所有 Job 基础编号（去重）
         all_jobs = sorted(df['_job_base'].dropna().unique())
         if len(all_jobs) == 0:
             st.warning("No Job numbers found in the data.")
@@ -547,14 +541,38 @@ if uploaded_file is not None:
             fig = create_gantt_for_job(df, selected_job, datetime.now().date())
             if fig:
                 st.plotly_chart(fig, use_container_width=True)
-                # 显示该 Job 的统计信息
                 job_data = df[df['_job_base'] == selected_job]
                 total_subparts = len(job_data)
-                completed = len(job_data[job_data['Status'] == '✅ On track'])  # 此处简化，实际已完成应判断 Current Operation = COMPLETED
                 st.metric("Total Subparts", total_subparts)
-                st.metric("On Track", completed)
             else:
                 st.error("Failed to generate Gantt chart. Please check data.")
+    
+    with tab6:
+        st.subheader("⚠️ Delayed Tasks Alert Dashboard")
+        delayed_df = df[df['Status'] == '⚠️ Delayed'].copy()
+        if delayed_df.empty:
+            st.success("🎉 No delayed tasks! All on track.")
+        else:
+            st.error(f"🚨 {len(delayed_df)} task(s) are delayed.")
+            # 按部门统计
+            dept_delay = delayed_df['Current Dept'].value_counts().reset_index()
+            dept_delay.columns = ['Department', 'Delayed Count']
+            fig_delay = px.bar(dept_delay, x='Department', y='Delayed Count', title='Delayed Tasks by Department', color='Delayed Count')
+            st.plotly_chart(fig_delay, use_container_width=True)
+            
+            # 延期详情列表
+            st.subheader("Delayed Task List")
+            delay_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'Current Operation', 'ETA', 'Planned Date']
+            delay_cols = [c for c in delay_cols if c in delayed_df.columns]
+            today_date = datetime.now().date()
+            delayed_df['Delayed Days'] = (today_date - delayed_df['ETA']).dt.days
+            delayed_display = delayed_df[delay_cols + ['Delayed Days']].sort_values('Delayed Days', ascending=False)
+            st.dataframe(delayed_display, use_container_width=True)
+            
+            # 按 Job 汇总
+            st.subheader("Job Summary with Delays")
+            job_delay = delayed_df.groupby('_job_base').size().reset_index(name='Delayed Subparts')
+            st.dataframe(job_delay, use_container_width=True)
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
@@ -562,7 +580,7 @@ else:
     1. Export BAQ Report from Epicor, ensure the header is on row 6.
     2. Required columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`, `Current Operation`.
     3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, etc.
-    4. The system now includes a **Gantt Chart** tab to visualize all subparts of a Job with timeline.
-    5. Use **Complete & Next** buttons in Department Workbench to advance tasks.
-    6. Download updated Excel to persist changes.
+    4. Use **Complete & Next** buttons in Department Workbench to advance tasks.
+    5. Download updated Excel to persist changes.
+    6. Check **Delayed Alerts** tab for overdue tasks.
     """)
