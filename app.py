@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 import plotly.express as px
+import plotly.graph_objects as go
 from io import BytesIO
 import re
 
@@ -25,7 +26,7 @@ if not check_password():
 
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
-st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, and task completion")
+st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, and Gantt chart")
 
 # ========== Configuration ==========
 LEAD_TIME = {
@@ -47,8 +48,8 @@ LEAD_TIME = {
     'F-INK': 0.1,
     '2-PK-A': 0.1,
     'C-SAW': 0.1,
-    'F-NPV1': 7.0,      # 外包工序，固定7天
-    'DEFAULT': 1.0      # 未知工序默认1天（10小时）
+    'F-NPV1': 7.0,
+    'DEFAULT': 1.0
 }
 
 OP_TO_DEPT = {
@@ -132,7 +133,6 @@ def get_next_operation(current_op, steps):
         return 'COMPLETED'
 
 def compute_eta(row, today):
-    """计算单个任务基于当前工序和工序链的预计完成日期（不考虑等待子部件）"""
     current_op = row.get('Current Operation')
     steps = row['_steps']
     if not steps:
@@ -151,7 +151,6 @@ def compute_eta(row, today):
     return today + timedelta(days=remaining_days)
 
 def compute_remaining_days(row, today):
-    """返回当前任务从当前工序到结束所需的总天数（浮点数）"""
     current_op = row.get('Current Operation')
     steps = row['_steps']
     if not steps:
@@ -188,34 +187,23 @@ def get_job_base(job_num):
     return match.group(1) if match else str(job_num)
 
 def update_main_part_eta(df, today):
-    """
-    对于每个 Job，找到主部件（-0），计算：
-    主部件最终 ETA = max(所有子部件 ETA) + 主部件自身剩余加工天数
-    如果主部件自身已完成（Current Operation = COMPLETED），则不加天数。
-    """
     df['_job_base'] = df['JobNum/Asm'].apply(get_job_base)
     df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
     
-    # 计算每个 Job 基础编号下，所有子部件（非主部件）的 ETA 最大值
     subpart_max_eta = {}
     for job_base in df['_job_base'].unique():
         sub_df = df[(df['_job_base'] == job_base) & (~df['_is_main'])]
         if not sub_df.empty:
             subpart_max_eta[job_base] = sub_df['ETA'].max()
     
-    # 更新主部件行
     for idx, row in df[df['_is_main']].iterrows():
         job_base = row['_job_base']
-        # 主部件自身剩余天数
         remaining_days = compute_remaining_days(row, today)
-        # 子部件最晚日期
         sub_max = subpart_max_eta.get(job_base, pd.NaT)
         if pd.notna(sub_max) and row['Current Operation'] != 'COMPLETED':
-            # 主部件必须等待子部件完成后才开始自身剩余工序
             new_eta = sub_max + timedelta(days=remaining_days)
         else:
-            # 没有子部件或主部件已完成，则使用自身 ETA
-            new_eta = row['ETA']  # 自身 ETA 已基于今日+剩余天数计算
+            new_eta = row['ETA']
         df.at[idx, 'ETA'] = new_eta
         df.at[idx, 'Status'] = '✅ On track' if new_eta >= today else '⚠️ Delayed'
     return df
@@ -242,14 +230,12 @@ def update_task_to_next_operation(df, index, today):
         df.at[index, 'ETA'] = compute_eta(df.loc[index], today)
     df.at[index, 'Status'] = '✅ On track' if df.at[index, 'ETA'] >= today else '⚠️ Delayed'
     
-    # 重新计算该 Job 的主部件 ETA（基于更新后的子部件）
     job_base = get_job_base(df.at[index, 'JobNum/Asm'])
     if job_base:
         job_mask = df['_job_base'] == job_base
         main_mask = job_mask & df['_is_main']
         if main_mask.any():
             main_idx = df[main_mask].index[0]
-            # 重新计算子部件最大 ETA（排除主部件自身）
             sub_mask = job_mask & (~df['_is_main'])
             sub_max = df.loc[sub_mask, 'ETA'].max() if sub_mask.any() else pd.NaT
             main_row = df.loc[main_idx]
@@ -262,6 +248,54 @@ def update_task_to_next_operation(df, index, today):
             df.at[main_idx, 'Status'] = '✅ On track' if new_main_eta >= today else '⚠️ Delayed'
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
+def create_gantt_for_job(df, job_base, today):
+    """为指定 Job 生成甘特图"""
+    job_df = df[df['_job_base'] == job_base].copy()
+    if job_df.empty:
+        return None
+    
+    # 确定开始日期：优先使用 Planned Date，若无效则使用今天
+    job_df['Start'] = job_df['Planned Date']
+    job_df['Start'] = job_df['Start'].fillna(today)
+    # 结束日期 = ETA
+    job_df['Finish'] = job_df['ETA']
+    # 确保 Finish 不早于 Start
+    mask = job_df['Finish'] < job_df['Start']
+    job_df.loc[mask, 'Finish'] = job_df.loc[mask, 'Start'] + timedelta(days=0.1)
+    
+    # 准备 hover 信息
+    job_df['Task'] = job_df['Subpart Part Num']
+    job_df['Current Operation'] = job_df['Current Operation'].fillna('None')
+    job_df['Remaining Days'] = (job_df['Finish'] - today).dt.days.clip(lower=0)
+    job_df['Status'] = job_df['Status']
+    job_df['Dept'] = job_df['Current Dept']
+    
+    # 创建甘特图
+    fig = px.timeline(
+        job_df,
+        x_start='Start',
+        x_end='Finish',
+        y='Task',
+        color='Dept',
+        hover_data={
+            'Current Operation': True,
+            'Remaining Days': True,
+            'Status': True,
+            'Start': True,
+            'Finish': True
+        },
+        title=f"Gantt Chart for Job {job_base} (All Subparts)",
+        labels={'Task': 'Subpart', 'Start': 'Planned Start', 'Finish': 'Est. Finish'}
+    )
+    
+    # 添加当前日期垂直线
+    fig.add_vline(x=today, line_dash="dash", line_color="red", annotation_text="Today", annotation_position="top left")
+    
+    # 调整布局
+    fig.update_yaxes(autorange="reversed")  # 让第一个任务显示在最上面
+    fig.update_layout(height=max(400, len(job_df)*30), xaxis_title="Date", yaxis_title="Subpart")
+    return fig
+
 # ========== Main interface ==========
 uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
 
@@ -270,7 +304,6 @@ if uploaded_file is not None:
         df = load_excel(uploaded_file)
         df['_steps'] = df.apply(extract_step_sequence, axis=1)
         today = datetime.now().date()
-        # 先计算每个任务自身的 ETA（基于当前工序）
         df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
         df['Current Dept'] = df['Current Operation'].apply(get_dept_from_op)
         df['Next Operation'] = df.apply(lambda row: get_next_operation(row['Current Operation'], row['_steps']), axis=1)
@@ -278,7 +311,6 @@ if uploaded_file is not None:
         df['_job_base'] = df['JobNum/Asm'].apply(get_job_base)
         df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
         df['Status'] = df['ETA'].apply(lambda x: '✅ On track' if x >= today else '⚠️ Delayed')
-        # 更新主部件的 ETA（基于子部件最晚日期 + 自身剩余天数）
         df = update_main_part_eta(df, today)
         if 'Exwork Date' in df.columns:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
@@ -291,11 +323,12 @@ if uploaded_file is not None:
     
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query"])
+    # ========== 新增第五个 Tab：甘特图 ==========
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 All Items", "🏭 Department Workbench", "📈 Capacity Dashboard", "🔍 Sales Query", "📅 Job Gantt Chart"])
     
     with tab1:
         st.subheader("Real-time status of all subparts")
-        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed but task not completed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), the Est. Finish Date = latest finish date among all subparts + remaining processing time of the main part itself.")
+        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), Est. Finish Date = latest subpart finish date + main part's own remaining days.")
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
                      'Current Operation', 'Next Operation', 'Current Dept', 
                      'Planned Date', 'ETA', 'Status', 'Assigned Eng']
@@ -415,15 +448,37 @@ if uploaded_file is not None:
                             f"- Status: {row['Status']}")
             else:
                 st.warning("No matching Part or Job found")
+    
+    # ========== 新增甘特图页面 ==========
+    with tab5:
+        st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
+        st.caption("Select a Job to view its Gantt chart. Each bar represents a subpart from Planned Start to Estimated Finish Date. Color indicates current department. The red dashed line marks today.")
+        
+        # 获取所有 Job 基础编号（去重）
+        all_jobs = sorted(df['_job_base'].dropna().unique())
+        if len(all_jobs) == 0:
+            st.warning("No Job numbers found in the data.")
+        else:
+            selected_job = st.selectbox("Select Job Number (Base)", all_jobs)
+            fig = create_gantt_for_job(df, selected_job, datetime.now().date())
+            if fig:
+                st.plotly_chart(fig, use_container_width=True)
+                # 显示该 Job 的统计信息
+                job_data = df[df['_job_base'] == selected_job]
+                total_subparts = len(job_data)
+                completed = len(job_data[job_data['Status'] == '✅ On track'])  # 此处简化，实际已完成应判断 Current Operation = COMPLETED
+                st.metric("Total Subparts", total_subparts)
+                st.metric("On Track", completed)
+            else:
+                st.error("Failed to generate Gantt chart. Please check data.")
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
     ### 📌 Instructions
-    1. Export BAQ Report from Epicor, ensure the header is on row 6 (code handles this automatically)
-    2. Must include columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20` (or `Step1`~`Step20`), `Current Operation`
-    3. The system automatically computes `Next Operation`, `Planned Date`, and `Est. Finish Date` (ETA).
-    4. **For main parts (JobNum/Asm ending with -0)**, the Est. Finish Date = latest finish date among all subparts + remaining processing time of the main part itself.
-    5. **Status**: ✅ On track = Est. Finish Date is today or in the future; ⚠️ Delayed = Est. Finish Date has passed.
-    6. In **Department Workbench**, use filters and click **Complete & Next** to advance tasks. The main part's ETA will automatically update.
-    7. Download the updated Excel to persist changes.
+    1. Export BAQ Report from Epicor, ensure the header is on row 6.
+    2. Required columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`, `Current Operation`.
+    3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, etc.
+    4. The system now includes a **Gantt Chart** tab to visualize all subparts of a Job with timeline.
+    5. Use **Complete & Next** buttons in Department Workbench to advance tasks.
+    6. Download updated Excel to persist changes.
     """)
