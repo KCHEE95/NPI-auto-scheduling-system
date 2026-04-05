@@ -322,29 +322,22 @@ def create_gantt_for_job(df, job_base, today):
     # 计算日期范围并生成每周一的刻度
     min_date = job_df['Start'].min().floor('D')
     max_date = job_df['Finish'].max().ceil('D')
-    # 找到第一个周一
-    start_weekday = min_date.weekday()  # Monday=0
+    start_weekday = min_date.weekday()
     first_monday = min_date - timedelta(days=start_weekday)
-    # 找到最后一个周日
     end_weekday = max_date.weekday()
     last_sunday = max_date + timedelta(days=(6 - end_weekday))
-    # 生成所有周一
     mondays = pd.date_range(start=first_monday, end=last_sunday, freq='W-MON')
     tick_vals = [m.to_pydatetime() for m in mondays]
     
     tick_texts = []
     for m in mondays:
         week_num = m.isocalendar()[1]
-        week_start_str = m.strftime('%d-%b-%y')
-        days = []
-        weekdays = []
-        for i in range(7):
-            d = m + timedelta(days=i)
-            days.append(str(d.day))
-            weekdays.append(d.strftime('%a')[0])
+        week_start_str = m.strftime('%d-%b')
+        # 生成该周每天的数字
+        days = [str((m + timedelta(days=i)).day) for i in range(7)]
         days_str = '|'.join(days)
-        weekdays_str = '|'.join(weekdays)
-        text = f"Week {week_num}<br>{week_start_str}<br>{days_str}<br>{weekdays_str}"
+        # 两行：第一行 Week 周数 (起始日期)，第二行 日期数字
+        text = f"Week {week_num} ({week_start_str})<br>{days_str}"
         tick_texts.append(text)
     
     fig.update_layout(
@@ -353,11 +346,11 @@ def create_gantt_for_job(df, job_base, today):
             tickvals=tick_vals,
             ticktext=tick_texts,
             tickangle=0,
-            tickfont=dict(size=8),
+            tickfont=dict(size=9),
             title=''
         ),
         height=max(500, len(job_df)*35),
-        margin=dict(t=140, b=60, l=10, r=10),
+        margin=dict(t=100, b=60, l=10, r=10),
         xaxis_title="",
         yaxis_title="Job - Subpart"
     )
