@@ -536,34 +536,7 @@ if uploaded_file is not None:
     with tab5:
         st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
         st.caption("Select a Job to view its Gantt chart. Each bar represents a subpart from Planned Start to Estimated Finish Date. Color indicates current department. The red dashed line marks today.")
-
-    with tab6:
-    st.subheader("⚠️ Delayed Tasks Alert Dashboard")
-    delayed_df = df[df['Status'] == '⚠️ Delayed'].copy()
-    if delayed_df.empty:
-        st.success("🎉 No delayed tasks! All on track.")
-    else:
-        st.error(f"🚨 {len(delayed_df)} task(s) are delayed.")
-        # 按部门统计
-        dept_delay = delayed_df['Current Dept'].value_counts().reset_index()
-        dept_delay.columns = ['Department', 'Delayed Count']
-        fig_delay = px.bar(dept_delay, x='Department', y='Delayed Count', title='Delayed Tasks by Department', color='Delayed Count')
-        st.plotly_chart(fig_delay, use_container_width=True)
-        
-        # 延期详情列表
-        st.subheader("Delayed Task List")
-        delay_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'Current Operation', 'ETA', 'Planned Date']
-        delay_cols = [c for c in delay_cols if c in delayed_df.columns]
-        # 计算已延期天数
-        today_date = datetime.now().date()
-        delayed_df['Delayed Days'] = (today_date - delayed_df['ETA']).dt.days
-        delayed_display = delayed_df[delay_cols + ['Delayed Days']].sort_values('Delayed Days', ascending=False)
-        st.dataframe(delayed_display, use_container_width=True)
-        
-        # 按 Job 汇总
-        st.subheader("Job Summary with Delays")
-        job_delay = delayed_df.groupby('_job_base').size().reset_index(name='Delayed Subparts')
-        st.dataframe(job_delay, use_container_width=True)        
+      
         
         # 获取所有 Job 基础编号（去重）
         all_jobs = sorted(df['_job_base'].dropna().unique())
