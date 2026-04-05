@@ -63,7 +63,7 @@ OP_TO_DEPT = {
 DEPT_CAPACITY = {
     'Deburr': 4, 'Laser Cut': 5, 'Masking': 2, 'Demasking': 2,
     'Inkjet': 1, 'Machining': 4, 'Touch Up': 2, 'Tapping': 2,
-    'Pickling': 1, 'Passivation': 2, 'Assembly A': 3, 'Buffing': 3,
+    'Pickling': 1, 'Passivation': 7, 'Assembly A': 3, 'Buffing': 3,
     'CD Stud': 4, 'Degreasing': 2,
     'Cutting': 5, 'Laser Welding': 3, 'Bending': 3,
     'Grinding': 2, 'Deburring': 2, 'Packing A': 3, 'Sawing': 2,
