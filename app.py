@@ -442,7 +442,7 @@ if uploaded_file is not None:
             cols_to_show = [c for c in cols_to_show if c in filtered_df.columns]
             
             for idx, row in filtered_df.iterrows():
-                # 计算进度相关
+                # 计算步骤索引和进度
                 steps = row['_steps']
                 current_op = row['Current Operation']
                 if steps and current_op not in ['COMPLETED', ''] and current_op in steps:
@@ -458,40 +458,42 @@ if uploaded_file is not None:
                     total_steps = len(steps)
                     remaining_steps = total_steps
                 
-                # 构建步骤指示器字符
-                step_chars = []
+                # 构建步骤指示器字符串（彩色方块）
+                step_blocks = []
                 for i in range(total_steps):
                     if i < current_idx:
-                        step_chars.append("🟩")   # 已完成
+                        step_blocks.append("🟩")   # 已完成
                     elif i == current_idx:
-                        step_chars.append("🔵")   # 当前
+                        step_blocks.append("🔵")   # 当前
                     else:
-                        step_chars.append("⬜")   # 未完成
-                step_display = " ".join(step_chars)
+                        step_blocks.append("⬜")   # 未完成
+                step_display = " ".join(step_blocks)
                 
-                # 卡片容器
+                # 卡片开始
                 with st.container():
-                    # 使用 st.markdown 实现简单的边框和背景（仅用一次，不复杂）
                     st.markdown("---")
+                    # 标题行
                     col_title, col_status = st.columns([3, 1])
                     with col_title:
                         st.markdown(f"**📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}**")
                     with col_status:
-                        status_color = "green" if row['Status'] == '✅ On track' else "red"
-                        st.markdown(f'<span style="color:{status_color}; font-weight:bold;">{row["Status"]}</span>', unsafe_allow_html=True)
+                        if row['Status'] == '✅ On track':
+                            st.markdown('<span style="color:green; font-weight:bold;">✅ On track</span>', unsafe_allow_html=True)
+                        else:
+                            st.markdown('<span style="color:red; font-weight:bold;">⚠️ Delayed</span>', unsafe_allow_html=True)
                     
-                    # 关键信息四列
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("🔧 Current Op", row['Current Operation'])
-                    col2.metric("🏭 Dept", row['Current Dept'])
+                    # 关键指标
+                    col_a, col_b, col_c, col_d = st.columns(4)
+                    col_a.metric("🔧 Current Op", row['Current Operation'])
+                    col_b.metric("🏭 Dept", row['Current Dept'])
                     eta_str = row['ETA'].strftime('%Y-%m-%d') if pd.notna(row['ETA']) else 'Unknown'
-                    col3.metric("📅 Est. Finish", eta_str)
+                    col_c.metric("📅 Est. Finish", eta_str)
                     exwork_str = row['Exwork Date'].strftime('%Y-%m-%d') if pd.notna(row.get('Exwork Date')) else '-'
-                    col4.metric("🚚 Exwork", exwork_str)
+                    col_d.metric("🚚 Exwork", exwork_str)
                     
                     # 步骤指示器
-                    st.markdown(f"**工序步骤**  {step_display}  ({current_idx+1}/{total_steps} 步)")
-                    st.caption(f"剩余 {remaining_steps} 个工序")
+                    st.markdown(f"**工序步骤**  {step_display}")
+                    st.caption(f"进度: {current_idx+1}/{total_steps} 步，剩余 {remaining_steps} 个工序")
                     
                     # 操作按钮
                     col_btn, col_cal = st.columns(2)
@@ -522,53 +524,21 @@ if uploaded_file is not None:
                                     st.warning("Enter actual hours first")
                         else:
                             st.write("✅ Completed")
-                    st.markdown("---")
-                    )
-                    # 操作按钮区：Complete & Next 和 Calibration 并排
-                    col_btn, col_cal = st.columns([1, 1])
-                    with col_btn:
-                        if st.button(f"✅ Complete & Next", key=f"complete_{idx}", use_container_width=True):
-                            today = datetime.now().date()
-                            updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
-                            if success:
-                                st.session_state['df'] = updated_df
-                                st.success(f"Task {row['Subpart Part Num']}: {message}")
-                                st.rerun()
-                            else:
-                                st.error(f"Failed: {message}")
-                    with col_cal:
-                        op = row['Current Operation']
-                        if op not in ['COMPLETED', '']:
-                            actual_hours = st.number_input(f"Actual hrs", min_value=0.0, step=0.5, key=f"actual_{idx}", label_visibility="collapsed", placeholder="Hours")
-                            if st.button(f"Calibrate", key=f"calib_{idx}", use_container_width=True):
-                                if actual_hours > 0:
-                                    old_days = get_lead_time(op)
-                                    old_hours = old_days * 10
-                                    new_hours = 0.7 * old_hours + 0.3 * actual_hours
-                                    new_days = new_hours / 10
-                                    st.session_state.lead_time_override[op] = new_days
-                                    st.success(f"Calibrated {op}: {old_days:.2f} days → {new_days:.2f} days")
-                                    st.rerun()
-                                else:
-                                    st.warning("Enter actual hours first")
-                        else:
-                            st.write("✅ Completed")
-                st.markdown("---")
-        
-        if st.button("📥 Download updated Excel (with progress changes)"):
-            output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
-            for col in ['ETA', 'Exwork Date', 'Planned Date']:
-                if col in output_df.columns:
-                    output_df[col] = output_df[col].astype(str)
-            output = BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                output_df.to_excel(writer, index=False, sheet_name='UpdatedSchedule')
-            st.download_button(
-                label="Download Excel",
-                data=output.getvalue(),
-                file_name=f"updated_{st.session_state['file_name']}",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            # 下载按钮放在循环外
+            if st.button("📥 Download updated Excel (with progress changes)"):
+                output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
+                for col in ['ETA', 'Exwork Date', 'Planned Date']:
+                    if col in output_df.columns:
+                        output_df[col] = output_df[col].astype(str)
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    output_df.to_excel(writer, index=False, sheet_name='UpdatedSchedule')
+                st.download_button(
+                    label="Download Excel",
+                    data=output.getvalue(),
+                    file_name=f"updated_{st.session_state['file_name']}",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
     
     with tab3:
         st.subheader("Department capacity load")
