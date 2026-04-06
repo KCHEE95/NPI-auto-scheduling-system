@@ -129,6 +129,8 @@ def get_lead_time(op):
 OP_TO_DEPT = {
     'P-DB': 'Deburr',
     'M-LC-FBR': 'Laser Cut',
+    'N-LT': 'Laser Tube',
+    'M-PC': 'Punching',
     'P-MK-A': 'Masking',
     'P-DMK-A': 'Demasking',
     'F-INK': 'Inkjet',
@@ -958,7 +960,7 @@ if uploaded_file is not None:
         st.caption("Tasks that have no Nesting Number (not programmed yet) for selected departments. Sort by Material (Mtl 10) to prioritize.")
         
         # 定义需要监控的部门（根据实际部门名称修改此列表）
-        target_depts = ['Laser Cut', 'Laser Tube', 'Punching', 'Laser Welding', 'Cutting']
+        target_depts = ['Laser Cut', 'Laser Tube', 'Punching']
         # 获取当前数据中实际存在的部门交集
         available_depts = [d for d in target_depts if d in df['Current Dept'].unique()]
         if not available_depts:
