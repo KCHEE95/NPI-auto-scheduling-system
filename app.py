@@ -880,77 +880,78 @@ if uploaded_file is not None:
                 st.dataframe(stuck_display, use_container_width=True)
 
     with tab9:
-        st.subheader("📊 Customer Summary - Items by Month (based on Exwork Date)")
-        st.caption("Top table: aggregated by Exwork Date month. Bottom trend: daily new items based on Order Date.")
+        st.subheader("📊 Customer Summary - Main Parts Only (Excluding Subparts)")
+        st.caption("Aggregates main parts (JobNum/Asm ending with -0) per customer and month using Exwork Date. Shows total main parts per customer.")
         
-        # 检查 Exwork Date 列是否存在且非空
-        if 'Exwork Date' not in df.columns or df['Exwork Date'].isna().all():
-            st.error("No valid Exwork Date found in the data. Please ensure the Excel contains 'Exwork Date' column.")
+        # 筛选主部件（-0）
+        if '_is_main' not in df.columns:
+            df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
+        
+        df_main = df[df['_is_main'] == True].copy()
+        
+        if df_main.empty:
+            st.warning("No main parts (ending with -0) found in the data.")
+        elif 'Exwork Date' not in df_main.columns or df_main['Exwork Date'].isna().all():
+            st.error("No valid Exwork Date found for main parts. Please ensure the Excel contains 'Exwork Date' column.")
         else:
-            df_cust = df.copy()
-            # 提取客户名称
-            df_cust['Customer'] = df_cust['Main Part Num'].fillna('Unknown').apply(
+            # 提取客户名称：从 Main Part Num 中取第一个 '-' 之前的部分
+            df_main['Customer'] = df_main['Main Part Num'].fillna('Unknown').apply(
                 lambda x: x.split('-')[0] if '-' in x else x
             )
-            # 月度聚合使用 Exwork Date
-            exwork_date_col = 'Exwork Date'
-            df_cust[exwork_date_col] = pd.to_datetime(df_cust[exwork_date_col], errors='coerce')
-            df_cust_ex = df_cust.dropna(subset=[exwork_date_col]).copy()
+            # 使用 Exwork Date
+            date_col = 'Exwork Date'
+            df_main[date_col] = pd.to_datetime(df_main[date_col], errors='coerce')
+            df_main = df_main.dropna(subset=[date_col])
             
-            if df_cust_ex.empty:
-                st.warning("No rows with valid Exwork Date for monthly summary.")
+            if df_main.empty:
+                st.warning("No main parts with valid Exwork Date.")
             else:
-                df_cust_ex['YearMonth'] = df_cust_ex[exwork_date_col].dt.strftime('%Y-%m')
-                monthly_agg = df_cust_ex.groupby(['Customer', 'YearMonth']).size().reset_index(name='Item Count')
-                pivot = monthly_agg.pivot(index='Customer', columns='YearMonth', values='Item Count').fillna(0).astype(int)
-                pivot['Total Items'] = pivot.sum(axis=1)
-                pivot = pivot.sort_values('Total Items', ascending=False)
+                # 添加月份列
+                df_main['YearMonth'] = df_main[date_col].dt.strftime('%Y-%m')
+                
+                # 按客户和月份聚合
+                monthly_agg = df_main.groupby(['Customer', 'YearMonth']).size().reset_index(name='Main Part Count')
+                
+                # 透视表：客户为行，月份为列，并计算总计
+                pivot = monthly_agg.pivot(index='Customer', columns='YearMonth', values='Main Part Count').fillna(0).astype(int)
+                pivot['Total Main Parts'] = pivot.sum(axis=1)
+                # 按总计降序排序
+                pivot = pivot.sort_values('Total Main Parts', ascending=False)
+                
+                # 显示透视表
                 st.dataframe(pivot, use_container_width=True, height=400)
-            
-            # 每日趋势图基于 Order Date
-            st.subheader("📈 Customer Daily Trend (based on Order Date)")
-            # 确定用于趋势的日期列
-            trend_date_col = None
-            if 'Order Date' in df_cust.columns and df_cust['Order Date'].notna().any():
-                trend_date_col = 'Order Date'
-            elif 'Planned Date' in df_cust.columns and df_cust['Planned Date'].notna().any():
-                trend_date_col = 'Planned Date'
-            elif 'First Process Plan Date' in df_cust.columns and df_cust['First Process Plan Date'].notna().any():
-                trend_date_col = 'First Process Plan Date'
-            else:
-                st.warning("No suitable date column (Order Date, Planned Date, or First Process Plan Date) for trend analysis.")
-                trend_date_col = None
-            
-            if trend_date_col:
-                df_trend = df_cust.copy()
-                df_trend[trend_date_col] = pd.to_datetime(df_trend[trend_date_col], errors='coerce')
-                df_trend = df_trend.dropna(subset=[trend_date_col])
-                customers = sorted(df_trend['Customer'].unique())
+                
+                # 可选：显示每个客户的详细趋势（基于 Exwork Date 的每日新增主部件）
+                st.subheader("📈 Customer Daily Trend (Main Parts only, based on Exwork Date)")
+                customers = sorted(df_main['Customer'].unique())
                 selected_customer = st.selectbox("Select Customer", customers)
                 
                 if selected_customer:
-                    cust_data = df_trend[df_trend['Customer'] == selected_customer].copy()
-                    cust_data['Date'] = cust_data[trend_date_col].dt.date
-                    daily_counts = cust_data.groupby('Date').size().reset_index(name='New Items')
+                    cust_data = df_main[df_main['Customer'] == selected_customer].copy()
+                    cust_data['Date'] = cust_data[date_col].dt.date
+                    daily_counts = cust_data.groupby('Date').size().reset_index(name='New Main Parts')
                     # 补齐缺失日期（最近60天）
                     today_date = datetime.now().date()
                     start_date = today_date - timedelta(days=60)
                     date_range = pd.date_range(start=start_date, end=today_date, freq='D').date
                     daily_counts = daily_counts.set_index('Date').reindex(date_range, fill_value=0).reset_index()
-                    daily_counts.columns = ['Date', 'New Items']
+                    daily_counts.columns = ['Date', 'New Main Parts']
                     
+                    # 昨天和今天的新增
                     yesterday = today_date - timedelta(days=1)
-                    yesterday_count = daily_counts[daily_counts['Date'] == yesterday]['New Items'].values[0] if yesterday in daily_counts['Date'].values else 0
-                    today_count = daily_counts[daily_counts['Date'] == today_date]['New Items'].values[0] if today_date in daily_counts['Date'].values else 0
+                    yesterday_count = daily_counts[daily_counts['Date'] == yesterday]['New Main Parts'].values[0] if yesterday in daily_counts['Date'].values else 0
+                    today_count = daily_counts[daily_counts['Date'] == today_date]['New Main Parts'].values[0] if today_date in daily_counts['Date'].values else 0
                     
                     col1, col2 = st.columns(2)
-                    col1.metric("📅 Yesterday's New Items (Order Date)", yesterday_count)
-                    col2.metric("📅 Today's New Items (Order Date)", today_count)
+                    col1.metric("📅 Yesterday's New Main Parts", yesterday_count)
+                    col2.metric("📅 Today's New Main Parts", today_count)
                     
-                    fig = px.line(daily_counts, x='Date', y='New Items', title=f"Daily New Items for {selected_customer} (Last 60 days, based on Order Date)", markers=True)
-                    fig.update_layout(xaxis_title="Date", yaxis_title="Number of Items")
+                    # 绘制趋势图
+                    fig = px.line(daily_counts, x='Date', y='New Main Parts', title=f"Daily New Main Parts for {selected_customer} (Last 60 days)", markers=True)
+                    fig.update_layout(xaxis_title="Date", yaxis_title="Number of Main Parts")
                     st.plotly_chart(fig, use_container_width=True)
                     
+                    # 显示最近7天的明细表格
                     st.subheader("Last 7 Days Breakdown")
                     last_7_days = daily_counts.tail(7)
                     st.dataframe(last_7_days, use_container_width=True)
