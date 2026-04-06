@@ -610,15 +610,17 @@ if uploaded_file is not None:
     
     with tab4:
         st.subheader("Quick sales query")
-        st.info("💡 Enter a Job Number (e.g., 525651) to see summary and sorted subpart list.")
-        # 如果从 Job Progress Board 跳转过来，预填搜索词
+        st.info("💡 Enter a Job Number (e.g., 525651), Subpart Part Num, or PO Number (e.g., 4501065119-50) to see summary and sorted subpart list.")
         default_search = st.session_state.pop('selected_job_sales', '')
-        search_term = st.text_input("Enter Job Number (Base) or Subpart Part Num", value=default_search, key="sales_query")
+        search_term = st.text_input("Enter Job Number, Subpart Part Num, or PO - POLine", value=default_search, key="sales_query")
         if search_term:
+            # 搜索条件：Job基础编号、子部件编号、PO-POLine
             mask = (df['_job_base'].astype(str).str.contains(search_term, case=False, na=False) |
-                    df['Subpart Part Num'].str.contains(search_term, case=False, na=False))
+                    df['Subpart Part Num'].str.contains(search_term, case=False, na=False) |
+                    df['PO - POLine'].astype(str).str.contains(search_term, case=False, na=False))
             result = df[mask].copy()
             if not result.empty:
+                # 按后缀排序
                 def extract_suffix(job_num):
                     match = re.search(r'-(\d+)$', str(job_num))
                     if match:
@@ -627,44 +629,77 @@ if uploaded_file is not None:
                 result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
                 result = result.sort_values('_sort_key')
                 
-                job_base = search_term
-                if '_job_base' in result.columns:
-                    job_base = result.iloc[0]['_job_base']
-                total_subparts = len(result)
-                on_track = len(result[result['Status'] == '✅ On track'])
-                delayed = total_subparts - on_track
-                main_part_row = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
-                if not main_part_row.empty:
-                    main_eta = main_part_row.iloc[0]['ETA'].strftime('%Y-%m-%d') if pd.notna(main_part_row.iloc[0]['ETA']) else 'Unknown'
-                    main_dept = main_part_row.iloc[0]['Current Dept']
-                else:
-                    main_eta = 'No main part'
-                    main_dept = 'N/A'
-                exwork_dates = result['Exwork Date'].dropna()
-                exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
-                dept_counts = result['Current Dept'].value_counts()
-                if not dept_counts.empty:
-                    bottleneck_dept = dept_counts.index[0]
-                    bottleneck_count = dept_counts.iloc[0]
-                else:
-                    bottleneck_dept = 'None'
-                    bottleneck_count = 0
-                delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
+                # 获取涉及的 Job 基础编号和 PO
+                jobs_involved = result['_job_base'].unique()
+                po_list = result['PO - POLine'].dropna().unique()
                 
-                st.markdown("### 📊 Job Summary")
-                col1, col2, col3, col4 = st.columns(4)
-                col1.metric("Total Subparts", total_subparts)
-                col1.metric("On Track", on_track, delta=None)
-                col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
-                col2.metric("Main Part Est. Finish", main_eta)
-                col3.metric("📦 Exwork Date (Delivery)", exwork_date)
-                col4.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
-                if not delayed_depts.empty:
-                    st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
+                st.markdown("### 📊 Search Summary")
+                col1, col2 = st.columns(2)
+                col1.metric("Matching Subparts", len(result))
+                col2.metric("Involved Jobs", len(jobs_involved))
+                if len(po_list) > 0:
+                    st.write(f"**PO Number(s):** {', '.join(po_list.astype(str))}")
+                
+                # 如果搜索的是 PO，展示该 PO 下所有 Job 的摘要
+                if search_term in po_list.astype(str).values or any(search_term in str(p) for p in po_list):
+                    st.subheader("📦 PO Summary")
+                    po_jobs = result.groupby('_job_base').agg({
+                        'Subpart Part Num': 'count',
+                        'ETA': lambda x: x.max(),
+                        'Exwork Date': lambda x: x.max(),
+                        'Status': lambda x: (x == '✅ On track').sum()
+                    }).reset_index()
+                    po_jobs.columns = ['Job', 'Subpart Count', 'Est. Finish Date', 'Exwork Date', 'On Track']
+                    po_jobs['Delayed'] = po_jobs['Subpart Count'] - po_jobs['On Track']
+                    po_jobs['Est. Finish Date'] = po_jobs['Est. Finish Date'].dt.strftime('%Y-%m-%d')
+                    po_jobs['Exwork Date'] = po_jobs['Exwork Date'].dt.strftime('%Y-%m-%d')
+                    st.dataframe(po_jobs, use_container_width=True)
+                    
+                    # 整体出货日期（最晚 Exwork Date）
+                    overall_exwork = result['Exwork Date'].max()
+                    if pd.notna(overall_exwork):
+                        st.success(f"**Overall estimated delivery date for PO:** {overall_exwork.strftime('%Y-%m-%d')}")
+                
+                # 原有的 Job 摘要（如果搜索的是单个 Job 或子部件）
+                # 如果结果只包含一个 Job 基础编号，则显示原有详细摘要
+                if len(jobs_involved) == 1:
+                    job_base = jobs_involved[0]
+                    total_subparts = len(result)
+                    on_track = len(result[result['Status'] == '✅ On track'])
+                    delayed = total_subparts - on_track
+                    main_part_row = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
+                    if not main_part_row.empty:
+                        main_eta = main_part_row.iloc[0]['ETA'].strftime('%Y-%m-%d') if pd.notna(main_part_row.iloc[0]['ETA']) else 'Unknown'
+                        main_dept = main_part_row.iloc[0]['Current Dept']
+                    else:
+                        main_eta = 'No main part'
+                        main_dept = 'N/A'
+                    exwork_dates = result['Exwork Date'].dropna()
+                    exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
+                    dept_counts = result['Current Dept'].value_counts()
+                    if not dept_counts.empty:
+                        bottleneck_dept = dept_counts.index[0]
+                        bottleneck_count = dept_counts.iloc[0]
+                    else:
+                        bottleneck_dept = 'None'
+                        bottleneck_count = 0
+                    delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
+                    
+                    st.markdown("### 📊 Job Summary")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("Total Subparts", total_subparts)
+                    col1.metric("On Track", on_track, delta=None)
+                    col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
+                    col2.metric("Main Part Est. Finish", main_eta)
+                    col3.metric("📦 Exwork Date (Delivery)", exwork_date)
+                    col4.metric("Bottleneck Dept", f"{bottleneck_dept} ({bottleneck_count} tasks)")
+                    if not delayed_depts.empty:
+                        st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
                 
                 st.markdown("### 📋 Subpart Details (sorted by -0, -1, -2...)")
                 display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
-                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
+                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty', 'PO - POLine']
+                # 确保列存在
                 display_cols = [c for c in display_cols if c in result.columns]
                 result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
                 st.dataframe(result_display, use_container_width=True)
@@ -675,7 +710,7 @@ if uploaded_file is not None:
                             steps_str = " → ".join(row['_steps'])
                             st.write(f"**{row['JobNum/Asm']} - {row['Subpart Part Num']}** : {steps_str}")
             else:
-                st.warning("No matching Job or Subpart found. Please check the Job Number (e.g., 525651).")
+                st.warning("No matching Job, Subpart, or PO found. Please check the input.")
     
     with tab5:
         st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
