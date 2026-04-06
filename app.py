@@ -99,7 +99,7 @@ DEFAULT_LEAD_TIME = {
     'M-LC-FBR': 0.1,
     'P-DB': 0.05,
     'N-MC': 0.3,
-    'P-TU-A': 0.001,
+    'P-TU-A': 0.1,
     'D-TAP-A': 0.1,
     'P-PCKLNG': 0.1,
     'ASSY-A': 0.1,
@@ -114,7 +114,7 @@ DEFAULT_LEAD_TIME = {
     'F-INK': 0.1,
     '2-PK-A': 0.1,
     'C-SAW': 0.1,
-    'F-NPV1': 0.001,
+    'F-NPV1': 7.0,
     'DEFAULT': 1.0
 }
 
@@ -178,7 +178,7 @@ def load_excel(file):
     
     for col in ['JobNum/Asm', 'Nesting Num', 'Exwork Date', 'Subpart Qty',
                 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10', 'Subpart Part Image',
-                'First Process Plan Date', 'Order Date']:
+                'First Process Plan Date', 'Order Date', 'PO - POLine']:
         if col not in df.columns:
             df[col] = ''
     return df
@@ -302,6 +302,8 @@ def update_task_to_next_operation(df, index, today):
         df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
         df.at[index, 'Next Operation'] = get_next_operation(next_op, steps)
         df.at[index, 'ETA'] = compute_eta(df.loc[index], today)
+        # 记录新工序的开始时间
+        df.at[index, '_step_start_time'] = datetime.now()
     df.at[index, 'Status'] = '✅ On track' if df.at[index, 'ETA'] >= today else '⚠️ Delayed'
     
     job_base = get_job_base(df.at[index, 'JobNum/Asm'])
@@ -442,6 +444,8 @@ if uploaded_file is not None:
         df = update_main_part_eta(df, today)
         if 'Exwork Date' in df.columns:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
+        # 初始化工序开始时间列
+        df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
         st.session_state['df'] = df.copy()
         st.session_state['file_name'] = uploaded_file.name
@@ -451,15 +455,16 @@ if uploaded_file is not None:
     
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
-    # ========== 7 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    # ========== 8 Tabs ==========
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
         "🔍 Sales Query",
         "📅 Job Gantt Chart",
         "⚠️ Delayed Alerts",
-        "📊 Job Progress Board"
+        "📊 Job Progress Board",
+        "⏰ Stuck Alerts"
     ])
     
     with tab1:
@@ -468,7 +473,7 @@ if uploaded_file is not None:
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
                      'Current Operation', 'Next Operation', 'Current Dept', 
                      'Planned Date', 'ETA', 'Status', 'Assigned Eng']
-        extra_cols = ['Exwork Date', 'Subpart Qty', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10']
+        extra_cols = ['Exwork Date', 'Subpart Qty', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10', 'PO - POLine']
         display_cols = [c for c in base_cols + extra_cols if c in df.columns]
         df_display = df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}).sort_values('Est. Finish Date')
         st.dataframe(df_display, use_container_width=True, height=500)
@@ -497,14 +502,12 @@ if uploaded_file is not None:
         if nest_filter:
             filtered_df = filtered_df[filtered_df['Nesting Num'].astype(str).str.contains(nest_filter, case=False, na=False)]
         
-        # 排序：按 ETA 升序（最紧急的排前面）
         filtered_df = filtered_df.sort_values('ETA')
         
         if filtered_df.empty:
             st.info("No tasks match the filters.")
         else:
             for idx, row in filtered_df.iterrows():
-                # 计算步骤索引和进度
                 steps = row['_steps']
                 current_op = row['Current Operation']
                 if steps and current_op not in ['COMPLETED', ''] and current_op in steps:
@@ -520,7 +523,6 @@ if uploaded_file is not None:
                     total_steps = len(steps)
                     remaining_steps = total_steps
                 
-                # 构建步骤指示器
                 step_blocks = []
                 for i in range(total_steps):
                     if i < current_idx:
@@ -578,7 +580,7 @@ if uploaded_file is not None:
                             st.write("✅ Completed")
         
         if st.button("📥 Download updated Excel (with progress changes)"):
-            output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main'], errors='ignore')
+            output_df = st.session_state['df'].drop(columns=['_steps', '_job_base', '_is_main', '_step_start_time'], errors='ignore')
             for col in ['ETA', 'Exwork Date', 'Planned Date']:
                 if col in output_df.columns:
                     output_df[col] = output_df[col].astype(str)
@@ -610,26 +612,15 @@ if uploaded_file is not None:
     
     with tab4:
         st.subheader("Quick sales query")
-        st.info("💡 Enter a Job Number, Subpart Part Num, or PO-POLine (e.g., 4501065119-50) to see summary and sorted subpart list.")
-        
-        # 如果从 Job Progress Board 跳转过来，预填搜索词
+        st.info("💡 Enter a Job Number, PO Number, or Subpart Part Num to see summary and sorted subpart list.")
         default_search = st.session_state.pop('selected_job_sales', '')
-        search_term = st.text_input("Enter Job Number (Base), Subpart Part Num, or PO-POLine", value=default_search, key="sales_query")
-        
+        search_term = st.text_input("Enter Job Number, PO-POLine, or Subpart Part Num", value=default_search, key="sales_query")
         if search_term:
-            # 构建搜索条件：匹配 Job 基础编号、子部件编号、或 PO-POLine
-            po_matches = df[df['PO - POLine'].astype(str).str.contains(search_term, case=False, na=False)]
-            job_matches = df[df['_job_base'].astype(str).str.contains(search_term, case=False, na=False)]
-            subpart_matches = df[df['Subpart Part Num'].astype(str).str.contains(search_term, case=False, na=False)]
-            
-            # 合并所有匹配结果
             mask = (df['_job_base'].astype(str).str.contains(search_term, case=False, na=False) |
                     df['Subpart Part Num'].str.contains(search_term, case=False, na=False) |
                     df['PO - POLine'].astype(str).str.contains(search_term, case=False, na=False))
             result = df[mask].copy()
-            
             if not result.empty:
-                # 按后缀排序
                 def extract_suffix(job_num):
                     match = re.search(r'-(\d+)$', str(job_num))
                     if match:
@@ -638,60 +629,35 @@ if uploaded_file is not None:
                 result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
                 result = result.sort_values('_sort_key')
                 
-                # 判断搜索类型
-                is_po_search = result['PO - POLine'].astype(str).str.contains(search_term, case=False, na=False).any()
+                overall_eta = result['ETA'].max()
+                overall_exwork = result['Exwork Date'].max()
+                total_subparts = len(result)
+                on_track = len(result[result['Status'] == '✅ On track'])
+                delayed = total_subparts - on_track
+                dept_counts = result['Current Dept'].value_counts()
+                bottleneck_dept = dept_counts.index[0] if not dept_counts.empty else 'None'
+                po_jobs = result['_job_base'].unique()
                 
-                if is_po_search:
-                    # PO 搜索模式：显示该 PO 下所有子部件
-                    st.markdown(f"### 📦 PO Search Results: {search_term}")
-                    
-                    # 汇总该 PO 下的所有 Job 和出货日期
-                    po_jobs = result['_job_base'].unique()
-                    po_exwork = result['Exwork Date'].max()
-                    po_exwork_str = po_exwork.strftime('%Y-%m-%d') if pd.notna(po_exwork) else 'Not set'
-                    
-                    col1, col2 = st.columns(2)
-                    col1.metric("Jobs in this PO", len(po_jobs))
-                    col2.metric("📦 PO Exwork Date (Delivery)", po_exwork_str)
-                    
-                    st.markdown(f"**Jobs in this PO:** {', '.join(po_jobs)}")
-                    st.markdown("---")
-                else:
-                    # Job 或 Subpart 搜索模式：显示原有摘要
-                    job_base = search_term
-                    if '_job_base' in result.columns:
-                        job_base = result.iloc[0]['_job_base']
-                    total_subparts = len(result)
-                    on_track = len(result[result['Status'] == '✅ On track'])
-                    delayed = total_subparts - on_track
-                    main_part_row = result[result['JobNum/Asm'].astype(str).str.endswith('-0')]
-                    if not main_part_row.empty:
-                        main_eta = main_part_row.iloc[0]['ETA'].strftime('%Y-%m-%d') if pd.notna(main_part_row.iloc[0]['ETA']) else 'Unknown'
-                    else:
-                        main_eta = 'No main part'
-                    exwork_dates = result['Exwork Date'].dropna()
-                    exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
-                    dept_counts = result['Current Dept'].value_counts()
-                    bottleneck_dept = dept_counts.index[0] if not dept_counts.empty else 'None'
-                    delayed_depts = result[result['Status'] == '⚠️ Delayed']['Current Dept'].value_counts()
-                    
-                    st.markdown("### 📊 Job Summary")
-                    col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Total Subparts", total_subparts)
-                    col1.metric("On Track", on_track)
-                    col1.metric("Delayed", delayed, delta=None if delayed==0 else f"-{delayed}")
-                    col2.metric("Main Part Est. Finish", main_eta)
-                    col3.metric("📦 Exwork Date (Delivery)", exwork_date)
-                    col4.metric("Bottleneck Dept", f"{bottleneck_dept} ({dept_counts.iloc[0] if not dept_counts.empty else 0} tasks)")
-                    if not delayed_depts.empty:
-                        st.warning(f"⚠️ Delayed tasks are currently in: {', '.join([f'{dept} ({count})' for dept, count in delayed_depts.items()])}")
+                st.markdown("### 📊 Search Summary")
+                col1, col2, col3 = st.columns(3)
+                col1.metric("Total Subparts Found", total_subparts)
+                col2.metric("On Track", on_track)
+                col3.metric("Delayed", delayed)
+                st.info(f"**Overall Est. Finish Date:** {overall_eta.strftime('%Y-%m-%d') if pd.notna(overall_eta) else 'Unknown'}  |  **Overall Exwork Date:** {overall_exwork.strftime('%Y-%m-%d') if pd.notna(overall_exwork) else 'Not set'}  |  **Bottleneck Dept:** {bottleneck_dept}")
+                if len(po_jobs) > 1:
+                    st.write(f"**Jobs involved in this PO:** {', '.join(po_jobs)}")
                 
-                # 显示详细子部件列表（包含 PO - POLine 列）
-                st.markdown("### 📋 Subpart Details")
-                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'PO - POLine', 'Current Operation', 'Current Dept', 
-                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
+                st.markdown("### 📋 Subpart Details (sorted by -0, -1, -2...)")
+                filter_text = st.text_input("🔍 Filter table (search any column)", key="subpart_filter", placeholder="e.g., Deburr, On track, P-DB...")
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty', 'PO - POLine']
                 display_cols = [c for c in display_cols if c in result.columns]
                 result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
+                if filter_text:
+                    mask_filter = result_display.astype(str).apply(lambda row: row.str.contains(filter_text, case=False).any(), axis=1)
+                    result_display = result_display[mask_filter]
+                    if result_display.empty:
+                        st.warning("No rows match the filter.")
                 st.dataframe(result_display, use_container_width=True)
                 
                 with st.expander("🔍 View full operation chain for each subpart"):
@@ -700,7 +666,7 @@ if uploaded_file is not None:
                             steps_str = " → ".join(row['_steps'])
                             st.write(f"**{row['JobNum/Asm']} - {row['Subpart Part Num']}** (PO: {row['PO - POLine']}) : {steps_str}")
             else:
-                st.warning("No matching Job, Subpart, or PO found. Please check your input.")
+                st.warning("No matching Job, PO, or Subpart found.")
     
     with tab5:
         st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
@@ -709,7 +675,6 @@ if uploaded_file is not None:
         if len(all_jobs) == 0:
             st.warning("No Job numbers found in the data.")
         else:
-            # 如果从 Job Progress Board 跳转过来，预选 Job
             default_job = st.session_state.pop('selected_job_gantt', None)
             if default_job and default_job in all_jobs:
                 default_index = all_jobs.index(default_job)
@@ -718,7 +683,7 @@ if uploaded_file is not None:
             selected_job = st.selectbox("Select Job Number (Base)", all_jobs, index=default_index)
             fig = create_gantt_for_job(df, selected_job, datetime.now().date())
             if fig:
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, use_container_width=True, key=f"gantt_{selected_job}")
                 job_data = df[df['_job_base'] == selected_job]
                 total_subparts = len(job_data)
                 st.metric("Total Subparts", total_subparts)
@@ -753,7 +718,6 @@ if uploaded_file is not None:
         st.subheader("📊 Global Job Progress Board")
         st.caption("Overview of all Jobs: estimated finish dates, progress, bottleneck departments, and more.")
         
-        # 按 _job_base 分组聚合
         job_group = df.groupby('_job_base').agg({
             'Subpart Part Num': 'count',
             'ETA': lambda x: x.max(),
@@ -766,11 +730,8 @@ if uploaded_file is not None:
         job_group['Delayed Count'] = job_group['Subpart Count'] - job_group['On Track Count']
         job_group['Progress %'] = (job_group['On Track Count'] / job_group['Subpart Count'] * 100).round(1).fillna(0)
         
-        # 确保日期列为 datetime 类型
         job_group['Main Part ETA'] = pd.to_datetime(job_group['Main Part ETA'], errors='coerce')
         job_group['Exwork Date'] = pd.to_datetime(job_group['Exwork Date'], errors='coerce')
-        
-        # 排序
         job_group = job_group.sort_values('Main Part ETA')
         
         col1, col2, col3 = st.columns(3)
@@ -797,7 +758,6 @@ if uploaded_file is not None:
         selected_job_for_action = st.selectbox("Select Job to view details", job_group['Job'].tolist())
         col_gantt, col_sales = st.columns(2)
         
-        # 使用 session_state 存储当前要显示的图表类型和对应的 Job
         if 'show_gantt' not in st.session_state:
             st.session_state.show_gantt = False
             st.session_state.show_sales = False
@@ -819,22 +779,18 @@ if uploaded_file is not None:
                 st.session_state.gantt_job = None
                 st.rerun()
         
-        # 显示甘特图（如果请求）
         if st.session_state.show_gantt and st.session_state.gantt_job:
             st.markdown("---")
             st.subheader(f"📅 Gantt Chart for Job {st.session_state.gantt_job}")
             fig = create_gantt_for_job(df, st.session_state.gantt_job, datetime.now().date())
             if fig:
-                # 使用唯一 key 避免重复 ID
                 st.plotly_chart(fig, use_container_width=True, key=f"gantt_{st.session_state.gantt_job}")
             else:
                 st.warning("Could not generate Gantt chart.")
         
-        # 显示销售摘要（如果请求）
         if st.session_state.show_sales and st.session_state.sales_job:
             st.markdown("---")
             st.subheader(f"📊 Sales Summary for Job {st.session_state.sales_job}")
-            # 复用销售查询的逻辑，但显示在 tab7 内
             result = df[df['_job_base'] == st.session_state.sales_job].copy()
             if not result.empty:
                 def extract_suffix(job_num):
@@ -844,7 +800,6 @@ if uploaded_file is not None:
                     return 0
                 result['_sort_key'] = result['JobNum/Asm'].apply(extract_suffix)
                 result = result.sort_values('_sort_key')
-                
                 total_subparts = len(result)
                 on_track = len(result[result['Status'] == '✅ On track'])
                 delayed = total_subparts - on_track
@@ -857,31 +812,69 @@ if uploaded_file is not None:
                 exwork_date = exwork_dates.max().strftime('%Y-%m-%d') if not exwork_dates.empty else 'Not set'
                 dept_counts = result['Current Dept'].value_counts()
                 bottleneck_dept = dept_counts.index[0] if not dept_counts.empty else 'None'
-                
                 col1, col2, col3 = st.columns(3)
                 col1.metric("Total Subparts", total_subparts)
                 col2.metric("On Track", on_track)
                 col3.metric("Delayed", delayed)
                 st.info(f"**Main Part Est. Finish:** {main_eta}  |  **Exwork Date:** {exwork_date}  |  **Bottleneck Dept:** {bottleneck_dept}")
-                
                 st.markdown("#### Subpart Details")
                 display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
-                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty']
+                                'ETA', 'Status', 'Exwork Date', 'Subpart Qty', 'PO - POLine']
                 display_cols = [c for c in display_cols if c in result.columns]
                 result_display = result[display_cols].rename(columns={'ETA': 'Est. Finish Date'})
                 st.dataframe(result_display, use_container_width=True)
             else:
                 st.warning("No data found for this Job.")
+    
+    with tab8:
+        st.subheader("⏰ Stuck Tasks Alert (Exceeding Standard Lead Time)")
+        st.caption("Tasks that have been in the same operation longer than the standard lead time (1.2x threshold). Only tasks that were advanced via 'Complete & Next' are tracked.")
+        
+        stuck_df = df[df['_step_start_time'].notna() & (df['Current Operation'] != 'COMPLETED')].copy()
+        if stuck_df.empty:
+            st.success("🎉 No stuck tasks! All operations are within expected time.")
+        else:
+            now = datetime.now()
+            stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
+            stuck_df['Standard Days'] = stuck_df['Current Operation'].apply(get_lead_time)
+            stuck_df['Threshold'] = stuck_df['Standard Days'] * 1.2
+            stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Standard Days']).round(2)
+            stuck_df['Status'] = stuck_df.apply(lambda x: '🔴 Stuck' if x['Stayed Days'] > x['Threshold'] else '🟡 In Progress', axis=1)
+            
+            stuck_df = stuck_df[stuck_df['Stayed Days'] > stuck_df['Threshold']]
+            if stuck_df.empty:
+                st.success("🎉 No tasks exceed the threshold!")
+            else:
+                st.error(f"🚨 {len(stuck_df)} task(s) have exceeded the standard lead time.")
+                dept_stuck = stuck_df['Current Dept'].value_counts().reset_index()
+                dept_stuck.columns = ['Department', 'Stuck Count']
+                fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
+                st.plotly_chart(fig_stuck, use_container_width=True)
+                
+                st.subheader("Stuck Task List")
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                '_step_start_time', 'Stayed Days', 'Standard Days', 'Exceed Ratio', 'Status']
+                display_cols = [c for c in display_cols if c in stuck_df.columns]
+                stuck_display = stuck_df[display_cols].copy()
+                stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
+                stuck_display = stuck_display.rename(columns={
+                    '_step_start_time': 'Start Time',
+                    'Stayed Days': 'Stayed (days)',
+                    'Standard Days': 'Standard (days)',
+                    'Exceed Ratio': 'Ratio'
+                })
+                st.dataframe(stuck_display, use_container_width=True)
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
     ### 📌 Instructions
     1. Export BAQ Report from Epicor, ensure the header is on row 6.
     2. Required columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`, `Current Operation`.
-    3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, etc.
+    3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, `PO - POLine`, etc.
     4. Use **Complete & Next** buttons in Department Workbench to advance tasks.
     5. **Auto-Calibration**: Enter actual hours (in hours) and click "Calibrate" to adjust future ETAs. Export/Import calibration JSON for persistence.
     6. Download updated Excel to persist progress changes.
     7. Check **Delayed Alerts** tab for overdue tasks.
     8. Use **Job Progress Board** to get an overview of all Jobs and quickly jump to Gantt/Sales views.
+    9. **Stuck Alerts** tab shows tasks that have exceeded the standard lead time (1.2x threshold) for the current operation.
     """)
