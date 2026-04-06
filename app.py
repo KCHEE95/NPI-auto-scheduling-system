@@ -461,7 +461,7 @@ if uploaded_file is not None:
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
     # ========== 8 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -470,7 +470,8 @@ if uploaded_file is not None:
         "⚠️ Delayed Alerts",
         "📊 Job Progress Board",
         "⏰ Stuck Alerts",
-        "📊 Customer Summary"
+        "📊 Customer Summary",
+        "🛠️ Programmer Board"
     ])
     
     with tab1:
@@ -951,6 +952,54 @@ if uploaded_file is not None:
                     st.subheader("Last 7 Days Breakdown")
                     last_7_days = daily_counts.tail(7)
                     st.dataframe(last_7_days, use_container_width=True)
+                    
+    with tab10:
+        st.subheader("🛠️ Programmer Board - Missing Nesting Programs")
+        st.caption("Tasks that have no Nesting Number (not programmed yet) for selected departments. Sort by Material (Mtl 10) to prioritize.")
+        
+        # 定义需要监控的部门（根据实际部门名称修改此列表）
+        target_depts = ['Laser Cut', 'Laser Tube', 'Punching', 'Laser Welding', 'Cutting']
+        # 获取当前数据中实际存在的部门交集
+        available_depts = [d for d in target_depts if d in df['Current Dept'].unique()]
+        if not available_depts:
+            st.warning(f"None of the target departments {target_depts} found in data. Available departments: {df['Current Dept'].unique().tolist()}")
+        else:
+            selected_depts = st.multiselect("Select departments to include", available_depts, default=available_depts)
+            if not selected_depts:
+                st.info("Please select at least one department.")
+            else:
+                # 筛选：部门在选定列表中，且 Nesting Num 为空
+                mask_dept = df['Current Dept'].isin(selected_depts)
+                mask_no_nesting = df['Nesting Num'].isna() | (df['Nesting Num'].astype(str).str.strip() == '')
+                programmer_df = df[mask_dept & mask_no_nesting].copy()
+                
+                if programmer_df.empty:
+                    st.success(f"No missing nesting tasks in the selected departments.")
+                else:
+                    st.error(f"🚨 {len(programmer_df)} task(s) missing nesting program.")
+                    
+                    # 显示列
+                    display_cols = ['JobNum/Asm', 'Nesting Num', 'Subpart Part Num', 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10', 'Subpart Qty', 'Current Dept', 'Current Operation']
+                    display_cols = [c for c in display_cols if c in programmer_df.columns]
+                    
+                    # 排序选项
+                    sort_by = st.selectbox("Sort by", options=['Mtl 10', 'JobNum/Asm', 'Subpart Part Num'], index=0)
+                    ascending = st.checkbox("Ascending", value=True)
+                    programmer_df = programmer_df.sort_values(by=sort_by, ascending=ascending)
+                    
+                    st.dataframe(programmer_df[display_cols], use_container_width=True, height=500)
+                    
+                    # 按材料汇总
+                    st.subheader("Summary by Material (Mtl 10)")
+                    mtl_counts = programmer_df['Mtl 10'].value_counts().reset_index()
+                    mtl_counts.columns = ['Material', 'Count']
+                    st.dataframe(mtl_counts, use_container_width=True)
+                    
+                    # 参考：已编程任务
+                    with st.expander("Show already programmed tasks (for reference)"):
+                        mask_programmed = df['Current Dept'].isin(selected_depts) & (~df['Nesting Num'].isna()) & (df['Nesting Num'].astype(str).str.strip() != '')
+                        programmed_df = df[mask_programmed][display_cols].head(20)
+                        st.dataframe(programmed_df, use_container_width=True)
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
