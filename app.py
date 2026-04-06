@@ -461,7 +461,7 @@ if uploaded_file is not None:
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
     # ========== 8 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -469,7 +469,8 @@ if uploaded_file is not None:
         "📅 Job Gantt Chart",
         "⚠️ Delayed Alerts",
         "📊 Job Progress Board",
-        "⏰ Stuck Alerts"
+        "⏰ Stuck Alerts",
+        "📊 Customer Summary"
     ])
     
     with tab1:
@@ -874,6 +875,81 @@ if uploaded_file is not None:
                     'Exceed Ratio': 'Ratio'
                 })
                 st.dataframe(stuck_display, use_container_width=True)
+
+    with tab9:
+        st.subheader("📊 Customer Summary - Items by Month")
+        st.caption("Aggregates items (subparts) per customer and month. Click on a customer to see daily trend.")
+        
+        # 提取客户名称：从 Main Part Num 中取第一个 '-' 之前的部分
+        # 如果 Main Part Num 为空，则使用 'Unknown'
+        df_cust = df.copy()
+        df_cust['Customer'] = df_cust['Main Part Num'].fillna('Unknown').apply(
+            lambda x: x.split('-')[0] if '-' in x else x
+        )
+        
+        # 确定日期列：优先使用 Order Date，如果没有则使用 Planned Date 或 First Process Plan Date
+        date_col = None
+        if 'Order Date' in df_cust.columns and df_cust['Order Date'].notna().any():
+            date_col = 'Order Date'
+        elif 'Planned Date' in df_cust.columns and df_cust['Planned Date'].notna().any():
+            date_col = 'Planned Date'
+        elif 'First Process Plan Date' in df_cust.columns and df_cust['First Process Plan Date'].notna().any():
+            date_col = 'First Process Plan Date'
+        else:
+            st.error("No valid date column found for trend analysis. Please ensure 'Order Date' exists.")
+            st.stop()
+        
+        # 确保日期为 datetime
+        df_cust[date_col] = pd.to_datetime(df_cust[date_col], errors='coerce')
+        df_cust = df_cust.dropna(subset=[date_col])
+        
+        # 添加月份列
+        df_cust['YearMonth'] = df_cust[date_col].dt.strftime('%Y-%m')
+        
+        # 按客户和月份聚合
+        monthly_agg = df_cust.groupby(['Customer', 'YearMonth']).size().reset_index(name='Item Count')
+        
+        # 透视表：客户为行，月份为列
+        pivot = monthly_agg.pivot(index='Customer', columns='YearMonth', values='Item Count').fillna(0).astype(int)
+        
+        # 显示透视表（带样式）
+        st.dataframe(pivot, use_container_width=True, height=400)
+        
+        # 选择客户查看详细趋势
+        st.subheader("📈 Customer Daily Trend")
+        customers = sorted(df_cust['Customer'].unique())
+        selected_customer = st.selectbox("Select Customer", customers)
+        
+        if selected_customer:
+            cust_data = df_cust[df_cust['Customer'] == selected_customer].copy()
+            cust_data['Date'] = cust_data[date_col].dt.date
+            daily_counts = cust_data.groupby('Date').size().reset_index(name='New Items')
+            # 补齐缺失日期（最近30天）
+            today_date = datetime.now().date()
+            start_date = today_date - timedelta(days=30)
+            date_range = pd.date_range(start=start_date, end=today_date, freq='D').date
+            daily_counts = daily_counts.set_index('Date').reindex(date_range, fill_value=0).reset_index()
+            daily_counts.columns = ['Date', 'New Items']
+            
+            # 昨天和今天的新增
+            yesterday = today_date - timedelta(days=1)
+            yesterday_count = daily_counts[daily_counts['Date'] == yesterday]['New Items'].values[0] if yesterday in daily_counts['Date'].values else 0
+            today_count = daily_counts[daily_counts['Date'] == today_date]['New Items'].values[0] if today_date in daily_counts['Date'].values else 0
+            
+            col1, col2 = st.columns(2)
+            col1.metric("📅 Yesterday's New Items", yesterday_count)
+            col2.metric("📅 Today's New Items", today_count)
+            
+            # 绘制趋势图
+            fig = px.line(daily_counts, x='Date', y='New Items', title=f"Daily New Items for {selected_customer} (Last 30 days)", markers=True)
+            fig.update_layout(xaxis_title="Date", yaxis_title="Number of Items")
+            st.plotly_chart(fig, use_container_width=True)
+            
+            # 显示最近7天的明细表格
+            st.subheader("Last 7 Days Breakdown")
+            last_7_days = daily_counts.tail(7)
+            st.dataframe(last_7_days, use_container_width=True)
+
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
