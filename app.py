@@ -296,15 +296,36 @@ def update_task_to_next_operation(df, index, today):
         df.at[index, 'Current Dept'] = 'Completed'
         df.at[index, 'Next Operation'] = ''
         df.at[index, 'ETA'] = today
+        # 完成时清除开始时间
+        df.at[index, '_step_start_time'] = pd.NaT
     else:
         next_op = steps[current_idx + 1]
         df.at[index, 'Current Operation'] = next_op
         df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
         df.at[index, 'Next Operation'] = get_next_operation(next_op, steps)
         df.at[index, 'ETA'] = compute_eta(df.loc[index], today)
-        # 记录新工序的开始时间
-        df.at[index, '_step_start_time'] = datetime.now()
+        # 记录新工序的开始时间（仅当是第一次进入该工序时）
+        if pd.isna(df.at[index, '_step_start_time']) or df.at[index, '_step_start_time'] == pd.NaT:
+            df.at[index, '_step_start_time'] = datetime.now()
     df.at[index, 'Status'] = '✅ On track' if df.at[index, 'ETA'] >= today else '⚠️ Delayed'
+    
+    job_base = get_job_base(df.at[index, 'JobNum/Asm'])
+    if job_base:
+        job_mask = df['_job_base'] == job_base
+        main_mask = job_mask & df['_is_main']
+        if main_mask.any():
+            main_idx = df[main_mask].index[0]
+            sub_mask = job_mask & (~df['_is_main'])
+            sub_max = df.loc[sub_mask, 'ETA'].max() if sub_mask.any() else pd.NaT
+            main_row = df.loc[main_idx]
+            remaining_days = compute_remaining_days(main_row, today)
+            if pd.notna(sub_max) and main_row['Current Operation'] != 'COMPLETED':
+                new_main_eta = sub_max + timedelta(days=remaining_days)
+            else:
+                new_main_eta = main_row['ETA']
+            df.at[main_idx, 'ETA'] = new_main_eta
+            df.at[main_idx, 'Status'] = '✅ On track' if new_main_eta >= today else '⚠️ Delayed'
+    return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
     
     job_base = get_job_base(df.at[index, 'JobNum/Asm'])
     if job_base:
@@ -440,6 +461,8 @@ if uploaded_file is not None:
         df['Planned Date'] = df.apply(get_planned_date, axis=1)
         df['_job_base'] = df['JobNum/Asm'].apply(get_job_base)
         df['_is_main'] = df['JobNum/Asm'].astype(str).str.endswith('-0')
+                # 初始化工序开始时间列（初始为 NaT）
+        df['_step_start_time'] = pd.NaT
         df['Status'] = df['ETA'].apply(lambda x: '✅ On track' if x >= today else '⚠️ Delayed')
         df = update_main_part_eta(df, today)
         if 'Exwork Date' in df.columns:
@@ -830,40 +853,45 @@ if uploaded_file is not None:
         st.subheader("⏰ Stuck Tasks Alert (Exceeding Standard Lead Time)")
         st.caption("Tasks that have been in the same operation longer than the standard lead time (1.2x threshold). Only tasks that were advanced via 'Complete & Next' are tracked.")
         
-        stuck_df = df[df['_step_start_time'].notna() & (df['Current Operation'] != 'COMPLETED')].copy()
-        if stuck_df.empty:
-            st.success("🎉 No stuck tasks! All operations are within expected time.")
+        # 检查是否有 _step_start_time 列
+        if '_step_start_time' not in df.columns:
+            st.info("ℹ️ No task start times recorded yet. Use 'Complete & Next' buttons to advance tasks and enable stuck detection.")
         else:
-            now = datetime.now()
-            stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
-            stuck_df['Standard Days'] = stuck_df['Current Operation'].apply(get_lead_time)
-            stuck_df['Threshold'] = stuck_df['Standard Days'] * 1.2
-            stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Standard Days']).round(2)
-            stuck_df['Status'] = stuck_df.apply(lambda x: '🔴 Stuck' if x['Stayed Days'] > x['Threshold'] else '🟡 In Progress', axis=1)
-            
-            stuck_df = stuck_df[stuck_df['Stayed Days'] > stuck_df['Threshold']]
+            stuck_df = df[df['_step_start_time'].notna() & (df['Current Operation'] != 'COMPLETED')].copy()
             if stuck_df.empty:
-                st.success("🎉 No tasks exceed the threshold!")
+                st.success("🎉 No stuck tasks! All operations are within expected time.")
             else:
-                st.error(f"🚨 {len(stuck_df)} task(s) have exceeded the standard lead time.")
-                dept_stuck = stuck_df['Current Dept'].value_counts().reset_index()
-                dept_stuck.columns = ['Department', 'Stuck Count']
-                fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
-                st.plotly_chart(fig_stuck, use_container_width=True)
+                now = datetime.now()
+                stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
+                stuck_df['Standard Days'] = stuck_df['Current Operation'].apply(get_lead_time)
+                stuck_df['Threshold'] = stuck_df['Standard Days'] * 1.2
+                stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Standard Days']).round(2)
+                stuck_df['Alert Status'] = stuck_df.apply(lambda x: '🔴 Stuck' if x['Stayed Days'] > x['Threshold'] else '🟡 In Progress', axis=1)
                 
-                st.subheader("Stuck Task List")
-                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
-                                '_step_start_time', 'Stayed Days', 'Standard Days', 'Exceed Ratio', 'Status']
-                display_cols = [c for c in display_cols if c in stuck_df.columns]
-                stuck_display = stuck_df[display_cols].copy()
-                stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
-                stuck_display = stuck_display.rename(columns={
-                    '_step_start_time': 'Start Time',
-                    'Stayed Days': 'Stayed (days)',
-                    'Standard Days': 'Standard (days)',
-                    'Exceed Ratio': 'Ratio'
-                })
-                st.dataframe(stuck_display, use_container_width=True)
+                stuck_df = stuck_df[stuck_df['Stayed Days'] > stuck_df['Threshold']]
+                if stuck_df.empty:
+                    st.success("🎉 No tasks exceed the threshold!")
+                else:
+                    st.error(f"🚨 {len(stuck_df)} task(s) have exceeded the standard lead time.")
+                    dept_stuck = stuck_df['Current Dept'].value_counts().reset_index()
+                    dept_stuck.columns = ['Department', 'Stuck Count']
+                    fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
+                    st.plotly_chart(fig_stuck, use_container_width=True)
+                    
+                    st.subheader("Stuck Task List")
+                    display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                    '_step_start_time', 'Stayed Days', 'Standard Days', 'Exceed Ratio', 'Alert Status']
+                    display_cols = [c for c in display_cols if c in stuck_df.columns]
+                    stuck_display = stuck_df[display_cols].copy()
+                    stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
+                    stuck_display = stuck_display.rename(columns={
+                        '_step_start_time': 'Start Time',
+                        'Stayed Days': 'Stayed (days)',
+                        'Standard Days': 'Standard (days)',
+                        'Exceed Ratio': 'Ratio',
+                        'Alert Status': 'Status'
+                    })
+                    st.dataframe(stuck_display, use_container_width=True)
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
