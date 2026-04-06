@@ -463,7 +463,7 @@ if uploaded_file is not None:
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
     # ========== 8 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -473,7 +473,8 @@ if uploaded_file is not None:
         "📊 Job Progress Board",
         "⏰ Stuck Alerts",
         "📊 Customer Summary",
-        "🛠️ Programmer Board"
+        "🛠️ Programmer Board",
+        "🛠️ Engineering WB Required"
     ])
     
     with tab1:
@@ -997,6 +998,74 @@ if uploaded_file is not None:
                         mask_programmed = df['Current Dept'].isin(selected_depts) & (~df['Nesting Num'].isna()) & (df['Nesting Num'].astype(str).str.strip() != '')
                         programmed_df = df[mask_programmed][display_cols].head(20)
                         st.dataframe(programmed_df, use_container_width=True)
+
+    with tab11:
+        st.subheader("🛠️ Engineering Workbench Required - Missing JobNum/Asm & Steps")
+        st.caption("Main parts that have no JobNum/Asm and no Step 1-20 (i.e., not yet engineered).")
+        
+        # 获取所有主部件（Main Part Num 唯一，或者取 JobNum/Asm 以 -0 结尾的行）
+        # 我们使用 Main Part Num 作为主部件标识，因为原始数据中 Main Part Num 向下填充了
+        # 但注意 Main Part Num 可能重复，所以取 unique
+        main_parts_list = df['Main Part Num'].dropna().unique()
+        
+        missing_eng = []
+        for mp in main_parts_list:
+            # 获取该 Main Part 下的所有子部件行
+            sub_df = df[df['Main Part Num'] == mp]
+            # 检查是否有任何一行存在有效的 JobNum/Asm 且非空
+            has_job = sub_df['JobNum/Asm'].notna().any() and (sub_df['JobNum/Asm'].astype(str).str.strip() != '').any()
+            # 检查是否有任何一行存在非空的 Step 1~20
+            has_step = False
+            for i in range(1, 21):
+                step_col = f'Step {i}'
+                if step_col in sub_df.columns:
+                    if sub_df[step_col].notna().any() and (sub_df[step_col].astype(str).str.strip() != '').any():
+                        has_step = True
+                        break
+            if not has_job and not has_step:
+                # 该主部件未做 engineering workbench
+                # 取该 Main Part 的第一行作为代表（或汇总信息）
+                first_row = sub_df.iloc[0]
+                # 提取客户（从 Main Part Num 前缀）
+                customer = mp.split('-')[0] if '-' in mp else 'Unknown'
+                missing_eng.append({
+                    'Main Part Num': mp,
+                    'Main Part 2D Rev': first_row.get('Main Part 2D Rev', ''),
+                    'Main Part 3D Rev': first_row.get('Main Part 3D Rev', ''),
+                    'Main Part KK Rev': first_row.get('Main Part KK Rev', ''),
+                    'Order Date': first_row.get('Order Date', ''),
+                    'Exwork Date': first_row.get('Exwork Date', ''),
+                    'Customer': customer,
+                    'Subpart Qty (First)': first_row.get('Subpart Qty', ''),
+                    'Mtl 10 (First)': first_row.get('Mtl 10', ''),
+                })
+        
+        if not missing_eng:
+            st.success("🎉 All main parts have Engineering Workbench completed (JobNum/Asm and Steps exist).")
+        else:
+            eng_df = pd.DataFrame(missing_eng)
+            st.error(f"🚨 {len(eng_df)} main part(s) missing Engineering Workbench.")
+            
+            # 按客户筛选
+            customers = sorted(eng_df['Customer'].unique())
+            selected_customer = st.multiselect("Filter by Customer", customers, default=customers)
+            if selected_customer:
+                eng_df = eng_df[eng_df['Customer'].isin(selected_customer)]
+            
+            # 排序选项
+            sort_by = st.selectbox("Sort by", options=['Customer', 'Main Part Num', 'Exwork Date'], index=0)
+            ascending = st.checkbox("Ascending", value=True)
+            eng_df = eng_df.sort_values(by=sort_by, ascending=ascending)
+            
+            # 显示表格
+            display_cols = ['Main Part Num', 'Customer', 'Main Part 2D Rev', 'Main Part 3D Rev', 'Main Part KK Rev', 'Order Date', 'Exwork Date', 'Subpart Qty (First)', 'Mtl 10 (First)']
+            st.dataframe(eng_df[display_cols], use_container_width=True, height=500)
+            
+            # 按客户汇总
+            st.subheader("Summary by Customer")
+            cust_summary = eng_df.groupby('Customer').size().reset_index(name='Missing Count')
+            st.dataframe(cust_summary, use_container_width=True)
+
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
