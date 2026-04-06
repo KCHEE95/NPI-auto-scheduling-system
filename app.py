@@ -326,24 +326,6 @@ def update_task_to_next_operation(df, index, today):
             df.at[main_idx, 'ETA'] = new_main_eta
             df.at[main_idx, 'Status'] = '✅ On track' if new_main_eta >= today else '⚠️ Delayed'
     return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
-    
-    job_base = get_job_base(df.at[index, 'JobNum/Asm'])
-    if job_base:
-        job_mask = df['_job_base'] == job_base
-        main_mask = job_mask & df['_is_main']
-        if main_mask.any():
-            main_idx = df[main_mask].index[0]
-            sub_mask = job_mask & (~df['_is_main'])
-            sub_max = df.loc[sub_mask, 'ETA'].max() if sub_mask.any() else pd.NaT
-            main_row = df.loc[main_idx]
-            remaining_days = compute_remaining_days(main_row, today)
-            if pd.notna(sub_max) and main_row['Current Operation'] != 'COMPLETED':
-                new_main_eta = sub_max + timedelta(days=remaining_days)
-            else:
-                new_main_eta = main_row['ETA']
-            df.at[main_idx, 'ETA'] = new_main_eta
-            df.at[main_idx, 'Status'] = '✅ On track' if new_main_eta >= today else '⚠️ Delayed'
-    return df, True, f"Moved to next operation: {next_op if current_idx+1 < len(steps) else 'COMPLETED'}"
 
 def create_gantt_for_job(df, job_base, today):
     job_df = df[df['_job_base'] == job_base].copy()
