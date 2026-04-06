@@ -461,7 +461,7 @@ if uploaded_file is not None:
     st.sidebar.success(f"✅ Loaded {len(df)} valid subparts")
     
     # ========== 8 Tabs ==========
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
