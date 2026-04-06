@@ -832,48 +832,48 @@ if uploaded_file is not None:
                 st.warning("No data found for this Job.")
     
     with tab8:
-        st.subheader("⏰ Stuck Tasks Alert (Exceeding Standard Lead Time)")
-        st.caption("Tasks that have been in the same operation longer than the standard lead time (1.2x threshold). Only tasks that were advanced via 'Complete & Next' are tracked.")
+        st.subheader("⏰ Stuck Tasks Alert (Exceeding Custom Time Threshold)")
+        st.caption("Tasks that have been in the same operation longer than the user-defined threshold (hours). Only tasks that were advanced via 'Complete & Next' are tracked.")
         
-        # 检查是否有 _step_start_time 列
-        if '_step_start_time' not in df.columns:
-            st.info("ℹ️ No task start times recorded yet. Use 'Complete & Next' buttons to advance tasks and enable stuck detection.")
+        # 可调节阈值（小时）
+        stuck_hours = st.number_input("Alert when a task stays in the same operation longer than (hours)", min_value=1, max_value=168, value=24, step=1, help="Set threshold in hours. Tasks exceeding this time will appear as stuck.")
+        stuck_days = stuck_hours / 24.0
+        
+        stuck_df = df[df['_step_start_time'].notna() & (df['Current Operation'] != 'COMPLETED')].copy()
+        if stuck_df.empty:
+            st.success("🎉 No tasks with tracked start time. Advance tasks via 'Complete & Next' to monitor.")
         else:
-            stuck_df = df[df['_step_start_time'].notna() & (df['Current Operation'] != 'COMPLETED')].copy()
-            if stuck_df.empty:
-                st.success("🎉 No stuck tasks! All operations are within expected time.")
+            now = datetime.now()
+            stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
+            stuck_df['Threshold Days'] = stuck_days
+            stuck_df['Exceed'] = stuck_df['Stayed Days'] > stuck_df['Threshold Days']
+            stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Threshold Days']).round(2)
+            stuck_df['Status'] = stuck_df['Exceed'].apply(lambda x: '🔴 Stuck' if x else '🟡 Within threshold')
+            
+            stuck_only = stuck_df[stuck_df['Exceed'] == True]
+            if stuck_only.empty:
+                st.success(f"🎉 No tasks exceed the {stuck_hours}-hour threshold.")
             else:
-                now = datetime.now()
-                stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
-                stuck_df['Standard Days'] = stuck_df['Current Operation'].apply(get_lead_time)
-                stuck_df['Threshold'] = stuck_df['Standard Days'] * 1.2
-                stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Standard Days']).round(2)
-                stuck_df['Alert Status'] = stuck_df.apply(lambda x: '🔴 Stuck' if x['Stayed Days'] > x['Threshold'] else '🟡 In Progress', axis=1)
+                st.error(f"🚨 {len(stuck_only)} task(s) have exceeded the {stuck_hours}-hour threshold.")
+                # 按部门统计
+                dept_stuck = stuck_only['Current Dept'].value_counts().reset_index()
+                dept_stuck.columns = ['Department', 'Stuck Count']
+                fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
+                st.plotly_chart(fig_stuck, use_container_width=True)
                 
-                stuck_df = stuck_df[stuck_df['Stayed Days'] > stuck_df['Threshold']]
-                if stuck_df.empty:
-                    st.success("🎉 No tasks exceed the threshold!")
-                else:
-                    st.error(f"🚨 {len(stuck_df)} task(s) have exceeded the standard lead time.")
-                    dept_stuck = stuck_df['Current Dept'].value_counts().reset_index()
-                    dept_stuck.columns = ['Department', 'Stuck Count']
-                    fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
-                    st.plotly_chart(fig_stuck, use_container_width=True)
-                    
-                    st.subheader("Stuck Task List")
-                    display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
-                                    '_step_start_time', 'Stayed Days', 'Standard Days', 'Exceed Ratio', 'Alert Status']
-                    display_cols = [c for c in display_cols if c in stuck_df.columns]
-                    stuck_display = stuck_df[display_cols].copy()
-                    stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
-                    stuck_display = stuck_display.rename(columns={
-                        '_step_start_time': 'Start Time',
-                        'Stayed Days': 'Stayed (days)',
-                        'Standard Days': 'Standard (days)',
-                        'Exceed Ratio': 'Ratio',
-                        'Alert Status': 'Status'
-                    })
-                    st.dataframe(stuck_display, use_container_width=True)
+                st.subheader("Stuck Task List")
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                '_step_start_time', 'Stayed Days', 'Threshold Days', 'Exceed Ratio', 'Status']
+                display_cols = [c for c in display_cols if c in stuck_only.columns]
+                stuck_display = stuck_only[display_cols].copy()
+                stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
+                stuck_display = stuck_display.rename(columns={
+                    '_step_start_time': 'Start Time',
+                    'Stayed Days': 'Stayed (days)',
+                    'Threshold Days': 'Threshold (days)',
+                    'Exceed Ratio': 'Ratio'
+                })
+                st.dataframe(stuck_display, use_container_width=True)
 else:
     st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
     st.markdown("""
