@@ -997,37 +997,48 @@ if uploaded_file is not None:
 
     with tab11:
         st.subheader("🛠️ Engineering Workbench Required")
-        st.caption("Main parts missing JobNum/Asm and all Step columns (no engineering workbench done yet).")
+        st.caption("Main parts that have no corresponding subpart row with JobNum/Asm and Steps (i.e., engineering workbench not completed).")
         
-        # 筛选主部件：Main Part Num 非空，且 JobNum/Asm 为空
-        main_parts_df = df[df['Main Part Num'].notna()].copy()
-        # 进一步筛选：JobNum/Asm 为空或 NaN
-        mask_no_job = main_parts_df['JobNum/Asm'].isna() | (main_parts_df['JobNum/Asm'].astype(str).str.strip() == '')
-        # 同时检查所有 Step 列是否全为空
+        # 获取所有唯一的 Main Part Num
+        all_main_parts = df['Main Part Num'].dropna().unique()
+        missing_eng_list = []
+        
+        # 对于每个 Main Part Num，检查是否存在子部件行（Subpart Part Num 等于该 Main Part Num）且有 JobNum/Asm 和 Step
         step_cols = [f'Step {i}' for i in range(1, 21)] + [f'Step{i}' for i in range(1, 21)]
-        step_cols = [c for c in step_cols if c in main_parts_df.columns]
+        step_cols = [c for c in step_cols if c in df.columns]
         
-        def has_no_steps(row):
-            for col in step_cols:
-                if pd.notna(row[col]) and str(row[col]).strip() != '':
-                    return False
-            return True
+        def has_valid_workbench(main_part):
+            # 查找 Subpart Part Num 等于 main_part 的行
+            sub_rows = df[df['Subpart Part Num'] == main_part]
+            if sub_rows.empty:
+                return False
+            # 检查这些行中是否有 JobNum/Asm 非空，并且至少有一个 Step 列非空
+            for _, row in sub_rows.iterrows():
+                has_job = pd.notna(row['JobNum/Asm']) and str(row['JobNum/Asm']).strip() != ''
+                has_step = any(pd.notna(row[col]) and str(row[col]).strip() != '' for col in step_cols)
+                if has_job and has_step:
+                    return True
+            return False
         
-        mask_no_steps = main_parts_df.apply(has_no_steps, axis=1)
-        missing_eng = main_parts_df[mask_no_job & mask_no_steps].copy()
+        for mp in all_main_parts:
+            if not has_valid_workbench(mp):
+                # 获取该主部件的第一行信息（用于显示）
+                main_row = df[df['Main Part Num'] == mp].iloc[0]
+                missing_eng_list.append(main_row)
         
-        if missing_eng.empty:
-            st.success("✅ All main parts have Engineering Workbench completed (JobNum/Asm and Steps exist).")
+        missing_eng_df = pd.DataFrame(missing_eng_list)
+        
+        if missing_eng_df.empty:
+            st.success("✅ All main parts have Engineering Workbench completed (subpart with JobNum/Asm and Steps exists).")
         else:
-            st.error(f"🚨 {len(missing_eng)} main part(s) missing Engineering Workbench.")
-            # 显示需要的列
-            display_cols = ['Main Part Num', 'Main Part 2D Rev', 'Main Part 3D Rev', 'Main Part KK Rev', 'Subpart Part Num']
-            display_cols = [c for c in display_cols if c in missing_eng.columns]
-            st.dataframe(missing_eng[display_cols], use_container_width=True)
+            st.error(f"🚨 {len(missing_eng_df)} main part(s) missing Engineering Workbench.")
+            display_cols = ['Main Part Num', 'Main Part 2D Rev', 'Main Part 3D Rev', 'Main Part KK Rev']
+            display_cols = [c for c in display_cols if c in missing_eng_df.columns]
+            st.dataframe(missing_eng_df[display_cols], use_container_width=True)
             
             # 按客户汇总
-            missing_eng['Customer'] = missing_eng['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
-            cust_summary = missing_eng['Customer'].value_counts().reset_index()
+            missing_eng_df['Customer'] = missing_eng_df['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
+            cust_summary = missing_eng_df['Customer'].value_counts().reset_index()
             cust_summary.columns = ['Customer', 'Missing Count']
             st.subheader("Summary by Customer")
             st.dataframe(cust_summary, use_container_width=True)
