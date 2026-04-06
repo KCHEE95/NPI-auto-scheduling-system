@@ -99,7 +99,7 @@ DEFAULT_LEAD_TIME = {
     'M-LC-FBR': 0.1,
     'P-DB': 0.05,
     'N-MC': 0.3,
-    'P-TU-A': 0.1,
+    'P-TU-A': 0.001,
     'D-TAP-A': 0.1,
     'P-PCKLNG': 0.1,
     'ASSY-A': 0.1,
@@ -114,7 +114,7 @@ DEFAULT_LEAD_TIME = {
     'F-INK': 0.1,
     '2-PK-A': 0.1,
     'C-SAW': 0.1,
-    'F-NPV1': 7.0,
+    'F-NPV1': 0.001,
     'DEFAULT': 1.0
 }
 
