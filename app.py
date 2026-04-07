@@ -8,34 +8,18 @@ from io import BytesIO
 import re
 import json
 
-# ========== Password protection & Role management ==========
-# 用户角色与权限映射
-USER_ROLES = {
-    "leader": {"password": "leader123", "customers": "ALL"},
-    "member_a": {"password": "memberA123", "customers": ["Customer A", "Customer B"]},
-    "member_b": {"password": "memberB123", "customers": ["Customer C", "Customer D", "Customer E"]},
-    # 可继续添加更多 member
-}
-
+# ========== 简单密码保护（可选） ==========
 def check_password():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
-        st.session_state.role = None
-        st.session_state.allowed_customers = []
-    
     if not st.session_state.authenticated:
-        st.sidebar.subheader("Login")
-        username = st.sidebar.selectbox("Select Role", list(USER_ROLES.keys()))
-        password = st.sidebar.text_input("Password", type="password")
-        if st.sidebar.button("Login"):
-            if USER_ROLES[username]["password"] == password:
-                st.session_state.authenticated = True
-                st.session_state.role = username
-                st.session_state.allowed_customers = USER_ROLES[username]["customers"]
-                st.rerun()
-            else:
-                st.sidebar.error("Incorrect password")
-        return False
+        pwd = st.sidebar.text_input("Enter system password", type="password")
+        if pwd == "admin123":
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.sidebar.error("Incorrect password")
+            return False
     return True
 
 if not check_password():
@@ -186,7 +170,6 @@ def load_excel(file):
         st.error("Excel missing 'Main Part Num' column")
         st.stop()
     
-    # 确保必要的列存在
     for col in ['JobNum/Asm', 'Nesting Num', 'Exwork Date', 'Subpart Qty',
                 'Subpart 2D Rev', 'Subpart KK Rev', 'Mtl 10', 'Subpart Part Image',
                 'First Process Plan Date', 'Order Date', 'PO - POLine', 'Order Category']:
@@ -313,11 +296,9 @@ def update_task_to_next_operation(df, index, today):
         df.at[index, 'Current Dept'] = get_dept_from_op(next_op)
         df.at[index, 'Next Operation'] = get_next_operation(next_op, steps)
         df.at[index, 'ETA'] = compute_eta(df.loc[index], today)
-        # 记录新工序的开始时间
         df.at[index, '_step_start_time'] = datetime.now()
     df.at[index, 'Status'] = '✅ On track' if df.at[index, 'ETA'] >= today else '⚠️ Delayed'
     
-    # 记录变更日志
     if 'change_log' not in st.session_state:
         st.session_state.change_log = []
     change_entry = {
@@ -431,17 +412,11 @@ def create_gantt_for_job(df, job_base, today):
     )
     return fig
 
-# ========== 全局筛选函数 ==========
-def apply_filters(df):
-    """应用客户权限过滤和 Order Category 过滤"""
-    # 1. 客户权限过滤
-    if st.session_state.role != "leader":
-        df['Customer'] = df['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
-        df = df[df['Customer'].isin(st.session_state.allowed_customers)]
-    # 2. Order Category 过滤（如果已选择）
+# ========== 全局筛选函数（仅 Order Category） ==========
+def apply_category_filter(df):
     if 'selected_categories' in st.session_state and st.session_state.selected_categories:
         if 'Order Category' in df.columns:
-            df = df[df['Order Category'].isin(st.session_state.selected_categories)]
+            return df[df['Order Category'].isin(st.session_state.selected_categories)]
     return df
 
 # ========== Sidebar for calibration and filters ==========
@@ -465,8 +440,6 @@ if st.sidebar.button("🔄 Reset All Calibrations"):
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("🏷️ Order Category Filter")
-# 获取所有可用的 Order Category（需要数据加载后才有，所以放在主界面中动态更新）
-# 我们将在数据加载后动态显示筛选器，此处占位
 category_filter_placeholder = st.sidebar.empty()
 
 st.sidebar.markdown("---")
@@ -499,12 +472,10 @@ if uploaded_file is not None:
         df = update_main_part_eta(df, today)
         if 'Exwork Date' in df.columns:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
-        # 初始化工序开始时间列
         df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
         st.session_state['df'] = df.copy()
         st.session_state['file_name'] = uploaded_file.name
-        # 初始化 Order Category 筛选器（默认选中 New Awarded 和 New Revision）
         if 'Order Category' in df.columns:
             all_categories = df['Order Category'].dropna().unique().tolist()
             default_cats = ['New Awarded', 'New Revision']
@@ -516,7 +487,6 @@ if uploaded_file is not None:
     else:
         df = st.session_state['df']
     
-    # 动态显示 Order Category 多选框（放在侧边栏）
     if 'Order Category' in df.columns:
         all_categories = sorted(df['Order Category'].dropna().unique())
         if all_categories:
@@ -531,9 +501,8 @@ if uploaded_file is not None:
     else:
         category_filter_placeholder.warning("Column 'Order Category' not found")
     
-    # 应用全局筛选（客户权限 + Order Category）
-    filtered_df = apply_filters(df.copy())
-    st.sidebar.success(f"✅ Loaded {len(df)} total rows, showing {len(filtered_df)} after filters")
+    filtered_df = apply_category_filter(df.copy())
+    st.sidebar.success(f"✅ Loaded {len(df)} total rows, showing {len(filtered_df)} after filter")
     
     # ========== 8 Tabs ==========
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -637,7 +606,6 @@ if uploaded_file is not None:
                             updated_df, success, message = update_task_to_next_operation(st.session_state['df'], idx, today)
                             if success:
                                 st.session_state['df'] = updated_df
-                                # 重新应用筛选器以更新当前显示
                                 st.rerun()
                             else:
                                 st.error(f"Failed: {message}")
