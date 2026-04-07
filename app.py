@@ -27,7 +27,7 @@ if not check_password():
 
 st.set_page_config(page_title="AI Auto Scheduling System", layout="wide")
 st.title("📊 AI Auto Scheduling & Progress Tracking System")
-st.caption("Auto-parsed from Epicor BAQ Report | Supports operation chain, ETA, task completion, alerts, and auto-calibration")
+st.caption("Auto-parsed from Epicor BAQ Report | Supports multiple files, operation chain, ETA, task completion, alerts, and auto-calibration")
 
 # ========== CSS for warm beige cards ==========
 st.markdown("""
@@ -162,12 +162,13 @@ DEPT_CAPACITY = {
 # ========== Helper functions ==========
 @st.cache_data
 def load_excel(file):
+    """读取单个 Excel 文件，返回 DataFrame"""
     df = pd.read_excel(file, header=5)
     df = df.dropna(how='all')
     if 'Main Part Num' in df.columns:
         df['Main Part Num'] = df['Main Part Num'].ffill()
     else:
-        st.error("Excel missing 'Main Part Num' column")
+        st.error(f"File {file.name} missing 'Main Part Num' column")
         st.stop()
     
     for col in ['JobNum/Asm', 'Nesting Num', 'Exwork Date', 'Subpart Qty',
@@ -176,6 +177,20 @@ def load_excel(file):
         if col not in df.columns:
             df[col] = ''
     return df
+
+def load_multiple_excel(files):
+    """合并多个 Excel 文件"""
+    dfs = []
+    for file in files:
+        df = load_excel(file)
+        dfs.append(df)
+    if dfs:
+        combined = pd.concat(dfs, ignore_index=True)
+        # 去除完全重复的行（基于所有列？可选，简单去重）
+        combined = combined.drop_duplicates()
+        return combined
+    else:
+        return pd.DataFrame()
 
 def extract_step_sequence(row):
     steps = []
@@ -455,11 +470,21 @@ if st.sidebar.button("🗑️ Clear Change Log"):
     st.sidebar.success("Change log cleared.")
 
 # ========== Main interface ==========
-uploaded_file = st.sidebar.file_uploader("📁 Upload Excel file exported from Epicor", type=["xlsx", "xls"])
+# 支持多文件上传
+uploaded_files = st.sidebar.file_uploader(
+    "📁 Upload Excel files exported from Epicor (multiple allowed)",
+    type=["xlsx", "xls"],
+    accept_multiple_files=True
+)
 
-if uploaded_file is not None:
-    if 'original_df' not in st.session_state or st.sidebar.button("Reload original file"):
-        df = load_excel(uploaded_file)
+if uploaded_files:
+    if 'original_df' not in st.session_state or st.sidebar.button("Reload all files"):
+        # 合并多个文件
+        combined_df = load_multiple_excel(uploaded_files)
+        if combined_df.empty:
+            st.error("No valid data found in the uploaded files.")
+            st.stop()
+        df = combined_df
         df['_steps'] = df.apply(extract_step_sequence, axis=1)
         today = datetime.now().date()
         df['ETA'] = df.apply(lambda row: compute_eta(row, today), axis=1)
@@ -475,7 +500,9 @@ if uploaded_file is not None:
         df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
         st.session_state['df'] = df.copy()
-        st.session_state['file_name'] = uploaded_file.name
+        # 生成一个文件名组合作为标识
+        file_names = ', '.join([f.name for f in uploaded_files])
+        st.session_state['file_name'] = file_names
         if 'Order Category' in df.columns:
             all_categories = df['Order Category'].dropna().unique().tolist()
             default_cats = ['New Awarded', 'New Revision']
@@ -502,7 +529,7 @@ if uploaded_file is not None:
         category_filter_placeholder.warning("Column 'Order Category' not found")
     
     filtered_df = apply_category_filter(df.copy())
-    st.sidebar.success(f"✅ Loaded {len(df)} total rows, showing {len(filtered_df)} after filter")
+    st.sidebar.success(f"✅ Loaded {len(df)} total rows from {len(uploaded_files)} file(s), showing {len(filtered_df)} after filter")
     
     # ========== 8 Tabs ==========
     tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -638,7 +665,7 @@ if uploaded_file is not None:
             st.download_button(
                 label="Download Excel",
                 data=output.getvalue(),
-                file_name=f"updated_{st.session_state['file_name']}",
+                file_name=f"updated_{st.session_state['file_name']}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
     
@@ -912,17 +939,18 @@ if uploaded_file is not None:
                         programmed_df = filtered_df[mask_programmed][display_cols].head(20)
                         st.dataframe(programmed_df, use_container_width=True)
 else:
-    st.info("👈 Please upload the Excel file exported from Epicor (BAQ Report)")
+    st.info("👈 Please upload one or more Excel files exported from Epicor (BAQ Report)")
     st.markdown("""
     ### 📌 Instructions
     1. Export BAQ Report from Epicor, ensure the header is on row 6.
     2. Required columns: `Main Part Num`, `Subpart Part Num`, `Step 1`~`Step 20`, `Current Operation`.
     3. Optional: `First Process Plan Date`, `Order Date`, `Exwork Date`, `PO - POLine`, `Order Category`, etc.
-    4. Use **Complete & Next** buttons in Department Workbench to advance tasks.
-    5. **Auto-Calibration**: Enter actual hours (in hours) and click "Calibrate" to adjust future ETAs. Export/Import calibration JSON for persistence.
-    6. Download updated Excel to persist progress changes.
-    7. Check **Delayed Alerts** tab for overdue tasks.
-    8. Use **Job Progress Board** to get an overview of all Jobs and quickly jump to Gantt/Sales views.
-    9. Use **Programmer Board** to see missing nesting tasks.
-    10. Use **Order Category Filter** in the sidebar to focus on New Awarded/New Revision items.
+    4. You can upload **multiple Excel files** at once (e.g., different customers). The system will combine them.
+    5. Use **Complete & Next** buttons in Department Workbench to advance tasks.
+    6. **Auto-Calibration**: Enter actual hours (in hours) and click "Calibrate" to adjust future ETAs. Export/Import calibration JSON for persistence.
+    7. Download updated Excel to persist progress changes.
+    8. Check **Delayed Alerts** tab for overdue tasks.
+    9. Use **Job Progress Board** to get an overview of all Jobs and quickly jump to Gantt/Sales views.
+    10. Use **Programmer Board** to see missing nesting tasks.
+    11. Use **Order Category Filter** in the sidebar to focus on New Awarded/New Revision items.
     """)
