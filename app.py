@@ -186,7 +186,6 @@ def load_multiple_excel(files):
         dfs.append(df)
     if dfs:
         combined = pd.concat(dfs, ignore_index=True)
-        # 去除完全重复的行（基于所有列？可选，简单去重）
         combined = combined.drop_duplicates()
         return combined
     else:
@@ -470,7 +469,6 @@ if st.sidebar.button("🗑️ Clear Change Log"):
     st.sidebar.success("Change log cleared.")
 
 # ========== Main interface ==========
-# 支持多文件上传
 uploaded_files = st.sidebar.file_uploader(
     "📁 Upload Excel files exported from Epicor (multiple allowed)",
     type=["xlsx", "xls"],
@@ -479,7 +477,6 @@ uploaded_files = st.sidebar.file_uploader(
 
 if uploaded_files:
     if 'original_df' not in st.session_state or st.sidebar.button("Reload all files"):
-        # 合并多个文件
         combined_df = load_multiple_excel(uploaded_files)
         if combined_df.empty:
             st.error("No valid data found in the uploaded files.")
@@ -500,7 +497,6 @@ if uploaded_files:
         df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
         st.session_state['df'] = df.copy()
-        # 生成一个文件名组合作为标识
         file_names = ', '.join([f.name for f in uploaded_files])
         st.session_state['file_name'] = file_names
         if 'Order Category' in df.columns:
@@ -531,8 +527,8 @@ if uploaded_files:
     filtered_df = apply_category_filter(df.copy())
     st.sidebar.success(f"✅ Loaded {len(df)} total rows from {len(uploaded_files)} file(s), showing {len(filtered_df)} after filter")
     
-    # ========== 8 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+    # ========== 11 Tabs ==========
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -540,7 +536,10 @@ if uploaded_files:
         "📅 Job Gantt Chart",
         "⚠️ Delayed Alerts",
         "📊 Job Progress Board",
-        "🛠️ Programmer Board"
+        "⏰ Stuck Alerts",
+        "📊 Customer Summary",
+        "🛠️ Programmer Board",
+        "🛠️ Engineering WB Required"
     ])
     
     with tab1:
@@ -902,6 +901,111 @@ if uploaded_files:
                 st.warning("No data found for this Job.")
     
     with tab8:
+        st.subheader("⏰ Stuck Tasks Alert (Exceeding Custom Time Threshold)")
+        st.caption("Tasks that have been in the same operation longer than the user-defined threshold (hours). Only tasks that were advanced via 'Complete & Next' are tracked.")
+        stuck_hours = st.number_input("Alert when a task stays in the same operation longer than (hours)", min_value=1, max_value=168, value=24, step=1, help="Set threshold in hours. Tasks exceeding this time will appear as stuck.")
+        stuck_days = stuck_hours / 24.0
+        
+        stuck_df = filtered_df[filtered_df['_step_start_time'].notna() & (filtered_df['Current Operation'] != 'COMPLETED')].copy()
+        if stuck_df.empty:
+            st.success("🎉 No tasks with tracked start time. Advance tasks via 'Complete & Next' to monitor.")
+        else:
+            now = datetime.now()
+            stuck_df['Stayed Days'] = (now - stuck_df['_step_start_time']).dt.total_seconds() / 86400.0
+            stuck_df['Threshold Days'] = stuck_days
+            stuck_df['Exceed'] = stuck_df['Stayed Days'] > stuck_df['Threshold Days']
+            stuck_df['Exceed Ratio'] = (stuck_df['Stayed Days'] / stuck_df['Threshold Days']).round(2)
+            stuck_df['Status'] = stuck_df['Exceed'].apply(lambda x: '🔴 Stuck' if x else '🟡 Within threshold')
+            
+            stuck_only = stuck_df[stuck_df['Exceed'] == True]
+            if stuck_only.empty:
+                st.success(f"🎉 No tasks exceed the {stuck_hours}-hour threshold.")
+            else:
+                st.error(f"🚨 {len(stuck_only)} task(s) have exceeded the {stuck_hours}-hour threshold.")
+                dept_stuck = stuck_only['Current Dept'].value_counts().reset_index()
+                dept_stuck.columns = ['Department', 'Stuck Count']
+                fig_stuck = px.bar(dept_stuck, x='Department', y='Stuck Count', title='Stuck Tasks by Department', color='Stuck Count')
+                st.plotly_chart(fig_stuck, use_container_width=True)
+                
+                st.subheader("Stuck Task List")
+                display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                                '_step_start_time', 'Stayed Days', 'Threshold Days', 'Exceed Ratio', 'Status']
+                display_cols = [c for c in display_cols if c in stuck_only.columns]
+                stuck_display = stuck_only[display_cols].copy()
+                stuck_display['_step_start_time'] = stuck_display['_step_start_time'].dt.strftime('%Y-%m-%d %H:%M')
+                stuck_display = stuck_display.rename(columns={
+                    '_step_start_time': 'Start Time',
+                    'Stayed Days': 'Stayed (days)',
+                    'Threshold Days': 'Threshold (days)',
+                    'Exceed Ratio': 'Ratio'
+                })
+                st.dataframe(stuck_display, use_container_width=True)
+    
+    with tab9:
+        st.subheader("📊 Customer Summary - Main Parts Only (based on Exwork Date)")
+        st.caption("Aggregates main parts (JobNum/Asm ending with -0) per customer and month using Exwork Date. Shows total main parts per customer.")
+        
+        main_parts_df = filtered_df[filtered_df['JobNum/Asm'].astype(str).str.endswith('-0')].copy()
+        if main_parts_df.empty:
+            st.warning("No main parts (ending with -0) found in the data.")
+        else:
+            if 'Exwork Date' not in main_parts_df.columns or main_parts_df['Exwork Date'].isna().all():
+                st.error("No valid Exwork Date found for main parts. Please ensure the Excel contains 'Exwork Date' column.")
+            else:
+                main_parts_df['Customer'] = main_parts_df['Main Part Num'].fillna('Unknown').apply(
+                    lambda x: x.split('-')[0] if '-' in x else x
+                )
+                exwork_date_col = 'Exwork Date'
+                main_parts_df[exwork_date_col] = pd.to_datetime(main_parts_df[exwork_date_col], errors='coerce')
+                main_parts_df = main_parts_df.dropna(subset=[exwork_date_col])
+                
+                if main_parts_df.empty:
+                    st.warning("No main parts with valid Exwork Date.")
+                else:
+                    main_parts_df['YearMonth'] = main_parts_df[exwork_date_col].dt.strftime('%Y-%m')
+                    monthly_agg = main_parts_df.groupby(['Customer', 'YearMonth']).size().reset_index(name='Main Part Count')
+                    pivot = monthly_agg.pivot(index='Customer', columns='YearMonth', values='Main Part Count').fillna(0).astype(int)
+                    pivot['Total Main Parts'] = pivot.sum(axis=1)
+                    pivot = pivot.sort_values('Total Main Parts', ascending=False)
+                    st.dataframe(pivot, use_container_width=True, height=400)
+                    
+                    st.subheader("📈 Customer Daily Trend (based on Order Date)")
+                    customers = sorted(main_parts_df['Customer'].unique())
+                    selected_customer = st.selectbox("Select Customer", customers)
+                    
+                    if selected_customer:
+                        cust_data = main_parts_df[main_parts_df['Customer'] == selected_customer].copy()
+                        if 'Order Date' not in cust_data.columns or cust_data['Order Date'].isna().all():
+                            st.warning("No valid Order Date for this customer. Cannot display daily trend.")
+                        else:
+                            order_date_col = 'Order Date'
+                            cust_data[order_date_col] = pd.to_datetime(cust_data[order_date_col], errors='coerce')
+                            cust_data = cust_data.dropna(subset=[order_date_col])
+                            cust_data['Date'] = cust_data[order_date_col].dt.date
+                            daily_counts = cust_data.groupby('Date').size().reset_index(name='New Main Parts')
+                            today_date = datetime.now().date()
+                            start_date = today_date - timedelta(days=60)
+                            date_range = pd.date_range(start=start_date, end=today_date, freq='D').date
+                            daily_counts = daily_counts.set_index('Date').reindex(date_range, fill_value=0).reset_index()
+                            daily_counts.columns = ['Date', 'New Main Parts']
+                            
+                            yesterday = today_date - timedelta(days=1)
+                            yesterday_count = daily_counts[daily_counts['Date'] == yesterday]['New Main Parts'].values[0] if yesterday in daily_counts['Date'].values else 0
+                            today_count = daily_counts[daily_counts['Date'] == today_date]['New Main Parts'].values[0] if today_date in daily_counts['Date'].values else 0
+                            
+                            col1, col2 = st.columns(2)
+                            col1.metric("📅 Yesterday's New Main Parts", yesterday_count)
+                            col2.metric("📅 Today's New Main Parts", today_count)
+                            
+                            fig = px.line(daily_counts, x='Date', y='New Main Parts', title=f"Daily New Main Parts for {selected_customer} (Last 60 days)", markers=True)
+                            fig.update_layout(xaxis_title="Date", yaxis_title="Number of Main Parts")
+                            st.plotly_chart(fig, use_container_width=True)
+                            
+                            st.subheader("Last 7 Days Breakdown")
+                            last_7_days = daily_counts.tail(7)
+                            st.dataframe(last_7_days, use_container_width=True)
+    
+    with tab10:
         st.subheader("🛠️ Programmer Board - Missing Nesting Programs")
         st.caption("Tasks that have no Nesting Number (not programmed yet) for selected departments. Sort by Material (Mtl 10) to prioritize.")
         
@@ -938,6 +1042,42 @@ if uploaded_files:
                         mask_programmed = filtered_df['Current Dept'].isin(selected_depts) & (~filtered_df['Nesting Num'].isna()) & (filtered_df['Nesting Num'].astype(str).str.strip() != '')
                         programmed_df = filtered_df[mask_programmed][display_cols].head(20)
                         st.dataframe(programmed_df, use_container_width=True)
+    
+    with tab11:
+        st.subheader("🛠️ Engineering Workbench Required")
+        st.caption("Main parts missing JobNum/Asm and all Step columns (no engineering workbench done yet).")
+        
+        # 筛选主部件：Main Part Num 非空
+        main_parts_df = filtered_df[filtered_df['Main Part Num'].notna()].copy()
+        # 进一步筛选：JobNum/Asm 为空或 NaN
+        mask_no_job = main_parts_df['JobNum/Asm'].isna() | (main_parts_df['JobNum/Asm'].astype(str).str.strip() == '')
+        # 检查所有 Step 列是否全为空
+        step_cols = [f'Step {i}' for i in range(1, 21)] + [f'Step{i}' for i in range(1, 21)]
+        step_cols = [c for c in step_cols if c in main_parts_df.columns]
+        
+        def has_no_steps(row):
+            for col in step_cols:
+                if pd.notna(row[col]) and str(row[col]).strip() != '':
+                    return False
+            return True
+        
+        mask_no_steps = main_parts_df.apply(has_no_steps, axis=1)
+        missing_eng = main_parts_df[mask_no_job & mask_no_steps].copy()
+        
+        if missing_eng.empty:
+            st.success("✅ All main parts have Engineering Workbench completed (JobNum/Asm and Steps exist).")
+        else:
+            st.error(f"🚨 {len(missing_eng)} main part(s) missing Engineering Workbench.")
+            display_cols = ['Main Part Num', 'Main Part 2D Rev', 'Main Part 3D Rev', 'Main Part KK Rev', 'Subpart Part Num']
+            display_cols = [c for c in display_cols if c in missing_eng.columns]
+            st.dataframe(missing_eng[display_cols], use_container_width=True)
+            
+            missing_eng['Customer'] = missing_eng['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
+            cust_summary = missing_eng['Customer'].value_counts().reset_index()
+            cust_summary.columns = ['Customer', 'Missing Count']
+            st.subheader("Summary by Customer")
+            st.dataframe(cust_summary, use_container_width=True)
+
 else:
     st.info("👈 Please upload one or more Excel files exported from Epicor (BAQ Report)")
     st.markdown("""
@@ -951,6 +1091,9 @@ else:
     7. Download updated Excel to persist progress changes.
     8. Check **Delayed Alerts** tab for overdue tasks.
     9. Use **Job Progress Board** to get an overview of all Jobs and quickly jump to Gantt/Sales views.
-    10. Use **Programmer Board** to see missing nesting tasks.
-    11. Use **Order Category Filter** in the sidebar to focus on New Awarded/New Revision items.
+    10. Use **Stuck Alerts** to monitor tasks exceeding custom time threshold.
+    11. Use **Customer Summary** to analyze main parts by customer and month.
+    12. Use **Programmer Board** to see missing nesting tasks.
+    13. Use **Engineering WB Required** to see main parts missing engineering workbench.
+    14. Use **Order Category Filter** in the sidebar to focus on New Awarded/New Revision items.
     """)
