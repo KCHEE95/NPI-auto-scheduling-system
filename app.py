@@ -1047,8 +1047,11 @@ if uploaded_files:
         st.subheader("🛠️ Engineering Workbench Required")
         st.caption("Main parts missing JobNum/Asm and all Step columns (no engineering workbench done yet).")
         
+        # 使用原始数据（未经过 Order Category 筛选）
+        raw_df = st.session_state['df']
+        
         # 筛选主部件：Main Part Num 非空
-        main_parts_df = filtered_df[filtered_df['Main Part Num'].notna()].copy()
+        main_parts_df = raw_df[raw_df['Main Part Num'].notna()].copy()
         # 进一步筛选：JobNum/Asm 为空或 NaN
         mask_no_job = main_parts_df['JobNum/Asm'].isna() | (main_parts_df['JobNum/Asm'].astype(str).str.strip() == '')
         # 检查所有 Step 列是否全为空
