@@ -1009,7 +1009,7 @@ if uploaded_files:
         st.subheader("🛠️ Programmer Board - Missing Nesting Programs")
         st.caption("Tasks that have no Nesting Number (not programmed yet) for selected departments. Sort by Material (Mtl 10) to prioritize.")
         
-        target_depts = ['Laser Cut', 'Laser Tube', 'Punching', 'Laser Welding', 'Cutting']
+        target_depts = ['Laser Cut', 'Laser Tube', 'Punching']   # 修改这里
         available_depts = [d for d in target_depts if d in filtered_df['Current Dept'].unique()]
         if not available_depts:
             st.warning(f"None of the target departments {target_depts} found in data. Available departments: {filtered_df['Current Dept'].unique().tolist()}")
