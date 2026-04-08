@@ -568,7 +568,8 @@ if uploaded_files:
     
     with tab2:
         st.subheader("Department to-do list")
-        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.\n\n📊 **Calibration**: Enter actual hours and click Calibrate to adjust future ETAs.")
+        st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.\n\n📊 **Calibration**: Enter actual hours and click Calibrate to adjust future ETAs.\n\n⭐ **Priority**: High priority tasks appear first and are marked with 🔴.")
+        
         dept_list = sorted(filtered_df['Current Dept'].unique())
         selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
         
@@ -584,12 +585,17 @@ if uploaded_files:
         if nest_filter:
             filtered_dept = filtered_dept[filtered_dept['Nesting Num'].astype(str).str.contains(nest_filter, case=False, na=False)]
         
-        filtered_dept = filtered_dept.sort_values('ETA')
+        # 添加优先级列并排序
+        filtered_dept['Priority'] = filtered_dept['_job_base'].map(st.session_state.priority_dict).fillna('Medium')
+        priority_order = {'High': 0, 'Medium': 1, 'Low': 2}
+        filtered_dept['_priority_weight'] = filtered_dept['Priority'].map(priority_order)
+        filtered_dept = filtered_dept.sort_values(['_priority_weight', 'ETA'])
         
         if filtered_dept.empty:
             st.info("No tasks match the filters.")
         else:
             for idx, row in filtered_dept.iterrows():
+                # 步骤指示器
                 steps = row['_steps']
                 current_op = row['Current Operation']
                 if steps and current_op not in ['COMPLETED', ''] and current_op in steps:
@@ -615,7 +621,16 @@ if uploaded_files:
                         step_blocks.append("⬜")
                 step_display = " ".join(step_blocks)
                 
-                with st.expander(f"📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}", expanded=False):
+                # 优先级图标
+                priority = row['Priority']
+                if priority == 'High':
+                    priority_icon = "🔴 High Priority"
+                elif priority == 'Medium':
+                    priority_icon = "🟡 Medium Priority"
+                else:
+                    priority_icon = "🟢 Low Priority"
+                
+                with st.expander(f"📦 {row['JobNum/Asm']} - {row['Subpart Part Num']}  {priority_icon}", expanded=False):
                     if row['Status'] == '✅ On track':
                         st.markdown('<span style="color:green; font-weight:bold;">✅ On track</span>', unsafe_allow_html=True)
                     else:
@@ -767,8 +782,16 @@ if uploaded_files:
             view_df = view_df[mask]
         
         # 排序选项
-        sort_by = st.selectbox("Sort by", ["ETA (earliest first)", "Exwork Date (earliest first)", "JobNum/Asm", "Subpart Part Num"])
-        if sort_by == "ETA (earliest first)":
+                # 添加优先级列
+        view_df['Priority'] = view_df['_job_base'].map(st.session_state.priority_dict).fillna('Medium')
+        priority_order = {'High': 0, 'Medium': 1, 'Low': 2}
+        view_df['_priority_weight'] = view_df['Priority'].map(priority_order)
+        
+        # 排序选项（增加优先级排序）
+        sort_by = st.selectbox("Sort by", ["Priority then ETA", "ETA (earliest first)", "Exwork Date (earliest first)", "JobNum/Asm", "Subpart Part Num"])
+        if sort_by == "Priority then ETA":
+            view_df = view_df.sort_values(['_priority_weight', 'ETA'])
+        elif sort_by == "ETA (earliest first)":
             view_df = view_df.sort_values('ETA')
         elif sort_by == "Exwork Date (earliest first)":
             view_df = view_df.sort_values('Exwork Date')
@@ -782,7 +805,7 @@ if uploaded_files:
             st.info("No pending tasks match the criteria.")
         else:
             st.write(f"**{len(view_df)} pending task(s) found**")
-            display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+            display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Priority', 'Current Operation', 'Current Dept', 
                             'ETA', 'Status', 'Exwork Date', 'Order Category', 'PO - POLine']
             display_cols = [c for c in display_cols if c in view_df.columns]
             st.dataframe(
