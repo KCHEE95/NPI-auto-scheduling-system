@@ -1045,120 +1045,112 @@ if uploaded_files:
     
     with tab11:
         st.subheader("🛠️ Engineering Workbench Required")
-        st.caption("显示缺少工程工作（无工单号且无任何工序步骤）的主部件及其子部件。按负责工程师汇总。")
+        st.caption("显示缺少工程工作（无工单号且无任何工序步骤）的主部件。按负责工程师汇总。")
         
         raw_df = st.session_state['df'].copy()
         
-        # 调试信息（可折叠）
+        # 调试信息：检查 Assigned Eng 列
         with st.expander("🔍 调试信息：检查 Assigned Eng 列及原始数据"):
             if 'Assigned Eng' in raw_df.columns:
                 non_empty = raw_df['Assigned Eng'].dropna()
                 st.write(f"✅ 'Assigned Eng' 列存在，非空值数量：{len(non_empty)}")
                 st.write(f"唯一值：{non_empty.unique().tolist()[:20]}")
-                st.write("前10行样本：", raw_df[['JobNum/Asm', 'Subpart Part Num', 'Assigned Eng']].head(10))
+                st.write("前10行样本（JobNum/Asm, Subpart Part Num, Assigned Eng）：")
+                sample_cols = ['JobNum/Asm', 'Subpart Part Num', 'Assigned Eng']
+                sample_cols = [c for c in sample_cols if c in raw_df.columns]
+                st.dataframe(raw_df[sample_cols].head(10))
             else:
-                st.error("❌ 列 'Assigned Eng' 不存在于上传的 Excel 中，请检查列名（大小写、空格）。")
-                # 列出所有包含 'eng' 的列名供参考
-                eng_cols = [c for c in raw_df.columns if 'eng' in c.lower()]
-                if eng_cols:
-                    st.write(f"可能的替代列：{eng_cols}")
+                st.error("❌ 列 'Assigned Eng' 不存在，请检查 Excel 列名（大小写、空格）")
+                eng_like = [c for c in raw_df.columns if 'eng' in c.lower()]
+                if eng_like:
+                    st.write(f"可能的列名：{eng_like}")
         
-        # 确保必要的辅助列存在
-        if '_job_base' not in raw_df.columns:
-            raw_df['_job_base'] = raw_df['JobNum/Asm'].apply(get_job_base)
-        if '_is_main' not in raw_df.columns:
-            raw_df['_is_main'] = raw_df['JobNum/Asm'].astype(str).str.endswith('-0')
-        
-        # 提取工序步骤列
+        # 确保必要的辅助列存在（用于判断步骤）
         step_cols = [col for col in raw_df.columns if col.startswith('Step') and not col.endswith('_exists')]
-        
-        # 标记是否有任何工序步骤
         raw_df['_has_any_step'] = raw_df[step_cols].apply(
             lambda row: any(pd.notna(row[col]) and str(row[col]).strip() != '' for col in step_cols),
             axis=1
         )
-        
-        # 标记是否有工单号（非空且非nan）
         raw_df['_has_job_num'] = raw_df['JobNum/Asm'].apply(
             lambda x: pd.notna(x) and str(x).strip() != ''
         )
         
-        # 找出需要工程工作的主部件（_is_main = True，且无工单号且无任何步骤）
-        main_parts_need_eng = raw_df[
-            raw_df['_is_main'] & 
-            (~raw_df['_has_job_num']) & 
-            (~raw_df['_has_any_step'])
-        ].copy()
+        # 以 Main Part Num 分组，判断整个主部件是否缺失工程工作
+        # 条件：该 Main Part Num 对应的所有行中，没有任何一行拥有 JobNum/Asm 且没有任何一行拥有任何步骤
+        # 注意：Main Part Num 可能有重复行（占位行、子部件行等）
+        main_part_groups = raw_df.groupby('Main Part Num')
+        missing_main_parts = []
         
-        if main_parts_need_eng.empty:
+        for main_part, group in main_part_groups:
+            # 检查该组内是否有任何行具备工单号或步骤
+            has_job_in_group = group['_has_job_num'].any()
+            has_step_in_group = group['_has_any_step'].any()
+            
+            if not has_job_in_group and not has_step_in_group:
+                # 该主部件缺失工程工作
+                # 从该组的所有行中提取第一个非空的 Assigned Eng
+                eng_val = ''
+                if 'Assigned Eng' in group.columns:
+                    # 优先取非空且非"未分配"的值
+                    eng_series = group['Assigned Eng'].fillna('').astype(str).str.strip()
+                    eng_series = eng_series[eng_series != '']
+                    if not eng_series.empty:
+                        eng_val = eng_series.iloc[0]
+                    else:
+                        eng_val = '未分配'
+                else:
+                    eng_val = '未分配'
+                
+                # 收集该主部件的信息（取组内第一行作为代表）
+                first_row = group.iloc[0]
+                missing_main_parts.append({
+                    'Main Part Num': main_part,
+                    'Assigned Eng': eng_val,
+                    'Main Part 2D Rev': first_row.get('Main Part 2D Rev', ''),
+                    'Main Part 3D Rev': first_row.get('Main Part 3D Rev', ''),
+                    'Main Part KK Rev': first_row.get('Main Part KK Rev', ''),
+                    'Order Category': first_row.get('Order Category', ''),
+                    'Exwork Date': first_row.get('Exwork Date', '')
+                })
+        
+        missing_df = pd.DataFrame(missing_main_parts)
+        
+        if missing_df.empty:
             st.success("✅ 所有主部件都已分配工单号或有工序步骤，没有需要工程工作的部件。")
         else:
-            # 获取这些主部件的 job_base
-            base_jobs_needed = main_parts_need_eng['_job_base'].unique()
+            st.error(f"🚨 {len(missing_df)} 个主部件缺少工程工作。")
             
-            # 取出所有相关行（包括主部件本身和所有子部件）
-            related_df = raw_df[raw_df['_job_base'].isin(base_jobs_needed)].copy()
-            
-            # 确保 Assigned Eng 列存在且填充空值
-            if 'Assigned Eng' in related_df.columns:
-                related_df['Assigned Eng'] = related_df['Assigned Eng'].fillna('').astype(str).str.strip()
-                related_df['Assigned Eng'] = related_df['Assigned Eng'].replace('', '未分配')
-            else:
-                related_df['Assigned Eng'] = '未分配'
-            
-            # 构建显示结果：对于每个需要工程的主部件，展示其所有子部件（包括主部件本身）
-            display_rows = []
-            for job_base in base_jobs_needed:
-                job_rows = related_df[related_df['_job_base'] == job_base]
-                # 取该 job 中任意一行的工程师（优先从子部件取，再从主部件取）
-                eng = '未分配'
-                sub_rows = job_rows[~job_rows['_is_main']]
-                if not sub_rows.empty and (sub_rows['Assigned Eng'] != '未分配').any():
-                    eng = sub_rows[sub_rows['Assigned Eng'] != '未分配']['Assigned Eng'].iloc[0]
-                elif (job_rows['Assigned Eng'] != '未分配').any():
-                    eng = job_rows[job_rows['Assigned Eng'] != '未分配']['Assigned Eng'].iloc[0]
-                
-                for _, row in job_rows.iterrows():
-                    display_rows.append({
-                        'JobNum/Asm': row['JobNum/Asm'],
-                        'Main Part Num': row['Main Part Num'],
-                        'Subpart Part Num': row['Subpart Part Num'],
-                        'Assigned Eng': eng,
-                        'Order Category': row.get('Order Category', ''),
-                        'Exwork Date': row.get('Exwork Date', ''),
-                        'Has JobNum': row['_has_job_num'],
-                        'Has Steps': row['_has_any_step']
-                    })
-            
-            result_df = pd.DataFrame(display_rows)
-            
-            st.error(f"🚨 {len(base_jobs_needed)} 个主部件缺少工程工作（涉及 {len(result_df)} 行部件记录）。")
-            
-            # 按工程师汇总缺失的主部件数量（每个主部件只计一次）
-            main_summary = result_df.drop_duplicates(subset=['Main Part Num', 'Assigned Eng'])
-            eng_counts = main_summary['Assigned Eng'].value_counts().reset_index()
-            eng_counts.columns = ['Engineer', 'Missing Main Parts Count']
+            # 按工程师汇总（每个主部件只计一次）
+            eng_summary = missing_df['Assigned Eng'].value_counts().reset_index()
+            eng_summary.columns = ['Engineer', 'Missing Main Parts Count']
             st.subheader("📊 按工程师汇总（缺失工程工作的主部件数）")
-            st.dataframe(eng_counts, use_container_width=True)
+            st.dataframe(eng_summary, use_container_width=True)
             
-            # 绘制条形图
-            if not eng_counts.empty:
-                fig = px.bar(eng_counts, x='Engineer', y='Missing Main Parts Count', 
+            # 条形图
+            if not eng_summary.empty:
+                fig = px.bar(eng_summary, x='Engineer', y='Missing Main Parts Count',
                              title='各工程师需要处理的主部件数量',
                              color='Missing Main Parts Count', text='Missing Main Parts Count')
                 fig.update_traces(textposition='outside')
                 st.plotly_chart(fig, use_container_width=True)
             
-            # 显示详细部件列表
-            st.subheader("📋 缺失工程工作的部件详情")
-            display_cols = ['JobNum/Asm', 'Main Part Num', 'Subpart Part Num', 'Assigned Eng', 'Order Category', 'Exwork Date']
-            display_cols = [c for c in display_cols if c in result_df.columns]
-            st.dataframe(result_df[display_cols], use_container_width=True, height=500)
+            # 显示详细列表
+            st.subheader("📋 缺失工程工作的主部件详情")
+            display_cols = ['Main Part Num', 'Assigned Eng', 'Main Part 2D Rev', 'Main Part 3D Rev', 'Main Part KK Rev', 'Order Category', 'Exwork Date']
+            display_cols = [c for c in display_cols if c in missing_df.columns]
+            st.dataframe(missing_df[display_cols], use_container_width=True, height=500)
             
             # 导出功能
-            csv = result_df[display_cols].to_csv(index=False).encode('utf-8-sig')
-            st.download_button("📥 导出工程看板数据 (CSV)", data=csv, 
+            csv = missing_df[display_cols].to_csv(index=False).encode('utf-8-sig')
+            st.download_button("📥 导出工程看板数据 (CSV)", data=csv,
                                file_name="engineering_wb_required.csv", mime="text/csv")
+            
+            # 按客户汇总（可选）
+            missing_df['Customer'] = missing_df['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
+            cust_summary = missing_df['Customer'].value_counts().reset_index()
+            cust_summary.columns = ['Customer', 'Missing Count']
+            st.subheader("📊 按客户汇总")
+            st.dataframe(cust_summary, use_container_width=True)
 else:
     st.info("👈 Please upload one or more Excel files exported from Epicor (BAQ Report)")
     st.markdown("""
