@@ -1062,9 +1062,12 @@ if uploaded_files:
             # 收集负责工程师（优先取子部件行的 Assigned Eng，否则取主部件行）
             assigned_eng = ''
             if sub_row is not None and pd.notna(sub_row.get('Assigned Eng')) and str(sub_row.get('Assigned Eng')).strip() != '':
-                assigned_eng = sub_row.get('Assigned Eng')
+                assigned_eng = str(sub_row.get('Assigned Eng')).strip()
             elif main_row is not None and pd.notna(main_row.get('Assigned Eng')) and str(main_row.get('Assigned Eng')).strip() != '':
-                assigned_eng = main_row.get('Assigned Eng')
+                assigned_eng = str(main_row.get('Assigned Eng')).strip()
+            
+            if assigned_eng == '':
+                assigned_eng = '未分配'
             
             if main_row is not None:
                 if pd.notna(main_row.get('JobNum/Asm')) and str(main_row.get('JobNum/Asm')).strip() != '':
@@ -1103,11 +1106,16 @@ if uploaded_files:
             display_cols = [c for c in display_cols if c in missing_eng.columns]
             st.dataframe(missing_eng[display_cols], use_container_width=True)
             
-            # 按工程师汇总
+            # 按工程师汇总（确保工程师列不为空）
             st.subheader("Summary by Assigned Engineer")
-            eng_summary = missing_eng['Assigned Eng'].value_counts().reset_index()
-            eng_summary.columns = ['Engineer', 'Missing Workbench Count']
-            st.dataframe(eng_summary, use_container_width=True)
+            # 过滤掉空值，只统计有工程师名字的记录
+            eng_counts = missing_eng[missing_eng['Assigned Eng'] != '未分配']['Assigned Eng'].value_counts()
+            if not eng_counts.empty:
+                eng_summary = eng_counts.reset_index()
+                eng_summary.columns = ['Engineer', 'Missing Workbench Count']
+                st.dataframe(eng_summary, use_container_width=True)
+            else:
+                st.info("No assigned engineers found for missing workbenches.")
             
             # 按客户汇总（保留原有）
             missing_eng['Customer'] = missing_eng['Main Part Num'].apply(lambda x: x.split('-')[0] if '-' in x else x)
