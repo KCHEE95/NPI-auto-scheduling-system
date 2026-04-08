@@ -1049,22 +1049,6 @@ if uploaded_files:
         
         raw_df = st.session_state['df'].copy()
         
-        # Debug expander
-        with st.expander("🔍 Debug: Check 'Assigned Eng' column and raw data"):
-            if 'Assigned Eng' in raw_df.columns:
-                non_empty = raw_df['Assigned Eng'].dropna()
-                st.write(f"✅ Column 'Assigned Eng' exists, non-empty count: {len(non_empty)}")
-                st.write(f"Unique values: {non_empty.unique().tolist()[:20]}")
-                st.write("First 10 rows (JobNum/Asm, Subpart Part Num, Assigned Eng):")
-                sample_cols = ['JobNum/Asm', 'Subpart Part Num', 'Assigned Eng']
-                sample_cols = [c for c in sample_cols if c in raw_df.columns]
-                st.dataframe(raw_df[sample_cols].head(10))
-            else:
-                st.error("❌ Column 'Assigned Eng' not found. Please check Excel column name (case/spacing).")
-                eng_like = [c for c in raw_df.columns if 'eng' in c.lower()]
-                if eng_like:
-                    st.write(f"Possible column names: {eng_like}")
-        
         # Helper columns to detect steps and job number
         step_cols = [col for col in raw_df.columns if col.startswith('Step') and not col.endswith('_exists')]
         raw_df['_has_any_step'] = raw_df[step_cols].apply(
