@@ -1048,29 +1048,41 @@ if uploaded_files:
         st.caption("Main parts missing Engineering Workbench: no JobNum/Asm and no Steps in either the main part row or its corresponding subpart row (where Subpart Part Num equals Main Part Num).")
         
         raw_df = st.session_state['df']   # 使用原始数据（未经过滤）
+        
+        # 调试：显示原始数据中的关键列，帮助确认 Assigned Eng 是否存在
+        with st.expander("🔍 Debug: Show raw data (first 20 rows)"):
+            debug_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Assigned Eng']
+            debug_cols = [c for c in debug_cols if c in raw_df.columns]
+            st.dataframe(raw_df[debug_cols].head(20), use_container_width=True)
+            if 'Assigned Eng' not in raw_df.columns:
+                st.warning("Column 'Assigned Eng' not found in the uploaded Excel. Please check column name.")
+        
         main_part_nums = raw_df['Main Part Num'].dropna().unique()
         missing_list = []
         for main_part in main_part_nums:
             main_rows = raw_df[raw_df['Main Part Num'] == main_part]
             main_row = main_rows.iloc[0] if not main_rows.empty else None
+            # 查找子部件行：Subpart Part Num 等于主部件编号的行（通常只有一个）
             sub_rows = raw_df[raw_df['Subpart Part Num'] == main_part]
             
             has_job = False
             has_steps = False
             
-            # 收集负责工程师（遍历所有子部件行和主部件行，取第一个非空值）
+            # 收集负责工程师：优先从子部件行获取，取第一个非空值
             assigned_eng = ''
-            # 优先从子部件行获取
-            for _, sub_row in sub_rows.iterrows():
-                if pd.notna(sub_row.get('Assigned Eng')) and str(sub_row.get('Assigned Eng')).strip() != '':
-                    assigned_eng = str(sub_row.get('Assigned Eng')).strip()
-                    break
+            if not sub_rows.empty:
+                # 遍历子部件行，取第一个非空的 Assigned Eng
+                for _, sub_row in sub_rows.iterrows():
+                    eng_val = sub_row.get('Assigned Eng')
+                    if pd.notna(eng_val) and str(eng_val).strip() != '':
+                        assigned_eng = str(eng_val).strip()
+                        break
             # 如果子部件行没有，再从主部件行获取
             if assigned_eng == '' and main_row is not None:
-                if pd.notna(main_row.get('Assigned Eng')) and str(main_row.get('Assigned Eng')).strip() != '':
-                    assigned_eng = str(main_row.get('Assigned Eng')).strip()
-            if assigned_eng == '':
-                assigned_eng = '未分配'
+                eng_val = main_row.get('Assigned Eng')
+                if pd.notna(eng_val) and str(eng_val).strip() != '':
+                    assigned_eng = str(eng_val).strip()
+            # 注意：不再使用“未分配”占位符，保留空字符串
             
             # 检查主部件行是否有 Job/Steps
             if main_row is not None:
@@ -1102,7 +1114,7 @@ if uploaded_files:
                         'Main Part 3D Rev': info_row.get('Main Part 3D Rev', ''),
                         'Main Part KK Rev': info_row.get('Main Part KK Rev', ''),
                         'Subpart Part Num': info_row.get('Subpart Part Num', ''),
-                        'Assigned Eng': assigned_eng
+                        'Assigned Eng': assigned_eng  # 可能为空字符串
                     })
         
         missing_eng = pd.DataFrame(missing_list)
@@ -1114,7 +1126,7 @@ if uploaded_files:
             display_cols = [c for c in display_cols if c in missing_eng.columns]
             st.dataframe(missing_eng[display_cols], use_container_width=True)
             
-            # 按工程师汇总（包括“未分配”）
+            # 按工程师汇总（保留空值，以便看到哪些没有工程师）
             st.subheader("Summary by Assigned Engineer")
             eng_counts = missing_eng['Assigned Eng'].value_counts()
             if not eng_counts.empty:
