@@ -503,6 +503,10 @@ if uploaded_files:
             all_jobs = df['_job_base'].unique()
             st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
         st.session_state['df'] = df.copy()
+                # Initialize priority_dict for all jobs (default Medium)
+        if 'priority_dict' not in st.session_state:
+            all_jobs = df['_job_base'].dropna().unique()
+            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
         file_names = ', '.join([f.name for f in uploaded_files])
         st.session_state['file_name'] = file_names
         if 'Order Category' in df.columns:
@@ -568,6 +572,12 @@ if uploaded_files:
     
     with tab2:
         st.subheader("Department to-do list")
+        
+        # 确保优先级字典存在
+        if 'priority_dict' not in st.session_state:
+            all_jobs = filtered_df['_job_base'].dropna().unique()
+            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
+            
         st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.\n\n📊 **Calibration**: Enter actual hours and click Calibrate to adjust future ETAs.\n\n⭐ **Priority**: High priority tasks appear first and are marked with 🔴.")
         
         dept_list = sorted(filtered_df['Current Dept'].unique())
@@ -692,6 +702,12 @@ if uploaded_files:
     
     with tab3:
         st.subheader("📊 Department Capacity & Pending Work")
+        
+        # 确保优先级字典存在
+        if 'priority_dict' not in st.session_state:
+            all_jobs = filtered_df['_job_base'].dropna().unique()
+            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
+            
         st.caption("Shows current pending tasks per department (tasks that are not COMPLETED). Compare against department capacity. Filter by department to see detailed pending list.")
         
         # 准备数据：只统计未完成的部件（Current Operation 不是 COMPLETED 且不为空）
@@ -1291,6 +1307,12 @@ if uploaded_files:
 
     with tab12:
         st.subheader("⭐ Job Priority Manager")
+        
+        # 确保优先级字典存在
+        if 'priority_dict' not in st.session_state:
+            all_jobs = filtered_df['_job_base'].dropna().unique()
+            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
+            
         st.caption("Set priority for each job (High/Medium/Low). High priority tasks will appear at the top of department workbenches and pending lists, helping teams focus on urgent customer requests.")
         
         # 获取所有唯一的 job base
