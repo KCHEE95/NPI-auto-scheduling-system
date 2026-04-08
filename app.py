@@ -671,20 +671,136 @@ if uploaded_files:
             )
     
     with tab3:
-        st.subheader("Department capacity load")
-        dept_load = filtered_df['Current Dept'].value_counts().reset_index()
-        dept_load.columns = ['Department', 'Task Count']
-        dept_load['Capacity'] = dept_load['Department'].map(DEPT_CAPACITY).fillna(5)
-        dept_load['Load (%)'] = (dept_load['Task Count'] / dept_load['Capacity'] * 100).round(1)
-        dept_load = dept_load.sort_values('Load (%)', ascending=False)
-        fig = px.bar(dept_load, x='Department', y='Task Count', color='Load (%)',
-                     title='Current task load by department (darker = busier)',
-                     labels={'Task Count': 'Number of tasks'})
+        st.subheader("📊 Department Capacity & Pending Work")
+        st.caption("Shows current pending tasks per department (tasks that are not COMPLETED). Compare against department capacity. Filter by department to see detailed pending list.")
+        
+        # 准备数据：只统计未完成的部件（Current Operation 不是 COMPLETED 且不为空）
+        pending_df = filtered_df[
+            (filtered_df['Current Operation'] != 'COMPLETED') & 
+            (filtered_df['Current Operation'].notna()) & 
+            (filtered_df['Current Operation'] != '')
+        ].copy()
+        
+        # 计算每个部门的待办数量
+        dept_pending = pending_df['Current Dept'].value_counts().reset_index()
+        dept_pending.columns = ['Department', 'Pending Count']
+        # 加入产能容量
+        dept_pending['Capacity'] = dept_pending['Department'].map(DEPT_CAPACITY).fillna(5)
+        dept_pending['Load %'] = (dept_pending['Pending Count'] / dept_pending['Capacity'] * 100).round(1)
+        dept_pending = dept_pending.sort_values('Load %', ascending=False)
+        
+        # 显示卡片式指标（前5个最忙的部门）
+        st.markdown("#### 🏭 Department Load Overview")
+        cols = st.columns(min(5, len(dept_pending)))
+        for i, (_, row) in enumerate(dept_pending.head(5).iterrows()):
+            with cols[i]:
+                load_color = "🟢" if row['Load %'] <= 80 else ("🟡" if row['Load %'] <= 100 else "🔴")
+                st.metric(
+                    label=f"{load_color} {row['Department']}",
+                    value=f"{row['Pending Count']} / {row['Capacity']}",
+                    delta=f"{row['Load %']}%",
+                    delta_color="normal"
+                )
+        
+        # 柱状图：待办数量 vs 产能
+        fig = px.bar(
+            dept_pending, 
+            x='Department', 
+            y='Pending Count', 
+            color='Load %',
+            title='Current Pending Tasks by Department (with capacity line)',
+            labels={'Pending Count': 'Number of Pending Tasks', 'Load %': 'Utilization (%)'},
+            text='Pending Count'
+        )
+        # 添加产能参考线
+        for dept in dept_pending['Department'].unique():
+            cap = dept_pending[dept_pending['Department'] == dept]['Capacity'].iloc[0]
+            fig.add_hline(y=cap, line_dash="dash", line_color="red", opacity=0.5, row=1, col=1)
+        fig.update_traces(textposition='outside')
+        fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
         st.plotly_chart(fig, use_container_width=True)
-        st.dataframe(dept_load, use_container_width=True)
-        overload = dept_load[dept_load['Load (%)'] > 100]
+        
+        # 数据表格：部门负载详情
+        st.dataframe(
+            dept_pending,
+            use_container_width=True,
+            column_config={
+                "Department": "Department",
+                "Pending Count": st.column_config.NumberColumn("Pending Tasks", format="%d"),
+                "Capacity": st.column_config.NumberColumn("Max Capacity", format="%d"),
+                "Load %": st.column_config.ProgressColumn("Utilization", format="%.1f%%", min_value=0, max_value=200)
+            }
+        )
+        
+        # 超负荷警告
+        overload = dept_pending[dept_pending['Load %'] > 100]
         if not overload.empty:
             st.error(f"⚠️ Overloaded departments: {', '.join(overload['Department'].tolist())}")
+        
+        st.markdown("---")
+        st.subheader("🔍 Department Pending Task List")
+        
+        # 部门筛选器
+        all_depts = sorted(pending_df['Current Dept'].unique())
+        selected_dept_pending = st.selectbox("Select Department to view pending tasks", ["All Departments"] + all_depts)
+        
+        # 筛选
+        if selected_dept_pending != "All Departments":
+            view_df = pending_df[pending_df['Current Dept'] == selected_dept_pending].copy()
+        else:
+            view_df = pending_df.copy()
+        
+        # 搜索框
+        search_term = st.text_input("🔎 Search (JobNum, Subpart, PO, etc.)", placeholder="Type to filter...")
+        if search_term:
+            mask = (
+                view_df['JobNum/Asm'].astype(str).str.contains(search_term, case=False, na=False) |
+                view_df['Subpart Part Num'].astype(str).str.contains(search_term, case=False, na=False) |
+                view_df['PO - POLine'].astype(str).str.contains(search_term, case=False, na=False) |
+                view_df['Main Part Num'].astype(str).str.contains(search_term, case=False, na=False)
+            )
+            view_df = view_df[mask]
+        
+        # 排序选项
+        sort_by = st.selectbox("Sort by", ["ETA (earliest first)", "Exwork Date (earliest first)", "JobNum/Asm", "Subpart Part Num"])
+        if sort_by == "ETA (earliest first)":
+            view_df = view_df.sort_values('ETA')
+        elif sort_by == "Exwork Date (earliest first)":
+            view_df = view_df.sort_values('Exwork Date')
+        elif sort_by == "JobNum/Asm":
+            view_df = view_df.sort_values('JobNum/Asm')
+        elif sort_by == "Subpart Part Num":
+            view_df = view_df.sort_values('Subpart Part Num')
+        
+        # 显示待办列表
+        if view_df.empty:
+            st.info("No pending tasks match the criteria.")
+        else:
+            st.write(f"**{len(view_df)} pending task(s) found**")
+            display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Current Operation', 'Current Dept', 
+                            'ETA', 'Status', 'Exwork Date', 'Order Category', 'PO - POLine']
+            display_cols = [c for c in display_cols if c in view_df.columns]
+            st.dataframe(
+                view_df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}),
+                use_container_width=True,
+                height=500
+            )
+            
+            # 导出CSV
+            csv = view_df[display_cols].to_csv(index=False).encode('utf-8-sig')
+            st.download_button(
+                "📥 Export Pending List (CSV)", 
+                data=csv, 
+                file_name=f"pending_{selected_dept_pending.replace(' ', '_')}.csv",
+                mime="text/csv"
+            )
+        
+        # 额外：展示最紧急的5个任务（所有部门）
+        st.markdown("---")
+        st.subheader("⏰ Most Urgent Pending Tasks (Across All Departments)")
+        urgent = pending_df.nsmallest(5, 'ETA')[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']]
+        urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
+        st.dataframe(urgent, use_container_width=True)
     
     with tab4:
         st.subheader("Quick sales query")
