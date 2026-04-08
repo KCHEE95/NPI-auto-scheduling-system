@@ -498,6 +498,10 @@ if uploaded_files:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
         df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
+                # 初始化优先级字典（为每个job base设置默认优先级Medium）
+        if 'priority_dict' not in st.session_state:
+            all_jobs = df['_job_base'].unique()
+            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
         st.session_state['df'] = df.copy()
         file_names = ', '.join([f.name for f in uploaded_files])
         st.session_state['file_name'] = file_names
@@ -529,8 +533,8 @@ if uploaded_files:
     filtered_df = apply_category_filter(df.copy())
     st.sidebar.success(f"✅ Loaded {len(df)} total rows from {len(uploaded_files)} file(s), showing {len(filtered_df)} after filter")
     
-    # ========== 11 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11 = st.tabs([
+    # ========== 12 Tabs ==========
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -541,7 +545,8 @@ if uploaded_files:
         "⏰ Stuck Alerts",
         "📊 Customer Summary",
         "🛠️ Programmer Board",
-        "🛠️ Engineering WB Required"
+        "🛠️ Engineering WB Required",
+        "⭐ Priority Manager"
     ])
     
     with tab1:
@@ -1260,6 +1265,99 @@ if uploaded_files:
             cust_summary.columns = ['Customer', 'Missing Count']
             st.subheader("📊 Summary by Customer")
             st.dataframe(cust_summary, use_container_width=True)
+
+    with tab12:
+        st.subheader("⭐ Job Priority Manager")
+        st.caption("Set priority for each job (High/Medium/Low). High priority tasks will appear at the top of department workbenches and pending lists, helping teams focus on urgent customer requests.")
+        
+        # 获取所有唯一的 job base
+        jobs = sorted(filtered_df['_job_base'].dropna().unique())
+        if not jobs:
+            st.info("No jobs found.")
+        else:
+            # 构建当前优先级数据表
+            priority_data = []
+            for job in jobs:
+                priority = st.session_state.priority_dict.get(job, 'Medium')
+                # 获取参考信息
+                job_rows = filtered_df[filtered_df['_job_base'] == job]
+                exwork_date = job_rows['Exwork Date'].max() if 'Exwork Date' in job_rows.columns else None
+                eta = job_rows['ETA'].max() if 'ETA' in job_rows.columns else None
+                main_part = job_rows.iloc[0]['Main Part Num'] if not job_rows.empty else ''
+                priority_data.append({
+                    'Job': job,
+                    'Main Part Num': main_part,
+                    'Priority': priority,
+                    'Exwork Date': exwork_date.strftime('%Y-%m-%d') if pd.notna(exwork_date) else '',
+                    'Est. Finish Date': eta.strftime('%Y-%m-%d') if pd.notna(eta) else ''
+                })
+            
+            priority_df = pd.DataFrame(priority_data)
+            
+            # 可编辑表格
+            edited_df = st.data_editor(
+                priority_df,
+                column_config={
+                    "Job": st.column_config.TextColumn("Job Base", disabled=True),
+                    "Main Part Num": st.column_config.TextColumn("Main Part", disabled=True),
+                    "Priority": st.column_config.SelectColumn(
+                        "Priority",
+                        options=["High", "Medium", "Low"],
+                        required=True
+                    ),
+                    "Exwork Date": st.column_config.TextColumn("Exwork Date", disabled=True),
+                    "Est. Finish Date": st.column_config.TextColumn("Est. Finish", disabled=True)
+                },
+                hide_index=True,
+                use_container_width=True,
+                key="priority_editor"
+            )
+            
+            if st.button("💾 Save Priority Changes", use_container_width=True):
+                for _, row in edited_df.iterrows():
+                    job = row['Job']
+                    new_priority = row['Priority']
+                    st.session_state.priority_dict[job] = new_priority
+                st.success("Priorities saved successfully!")
+                st.rerun()
+            
+            # 批量操作
+            st.markdown("---")
+            st.subheader("⚡ Batch Actions")
+            col_b1, col_b2, col_b3 = st.columns(3)
+            with col_b1:
+                if st.button("Set ALL to High", use_container_width=True):
+                    for job in jobs:
+                        st.session_state.priority_dict[job] = 'High'
+                    st.rerun()
+            with col_b2:
+                if st.button("Set ALL to Medium", use_container_width=True):
+                    for job in jobs:
+                        st.session_state.priority_dict[job] = 'Medium'
+                    st.rerun()
+            with col_b3:
+                if st.button("Set ALL to Low", use_container_width=True):
+                    for job in jobs:
+                        st.session_state.priority_dict[job] = 'Low'
+                    st.rerun()
+            
+            # 导出/导入
+            st.markdown("---")
+            col_e1, col_e2 = st.columns(2)
+            with col_e1:
+                if st.button("📥 Export Priorities (JSON)", use_container_width=True):
+                    priority_json = json.dumps(st.session_state.priority_dict, indent=2)
+                    st.download_button("Download", data=priority_json, file_name="job_priorities.json", mime="application/json")
+            with col_e2:
+                priority_upload = st.file_uploader("📂 Import Priorities (JSON)", type=["json"], key="priority_import")
+                if priority_upload:
+                    imported = json.load(priority_upload)
+                    for job, prio in imported.items():
+                        if job in st.session_state.priority_dict:
+                            st.session_state.priority_dict[job] = prio
+                    st.success("Priorities imported successfully!")
+                    st.rerun()
+
 else:
     st.info("👈 Please upload one or more Excel files exported from Epicor (BAQ Report)")
     st.markdown("""
