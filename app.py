@@ -534,7 +534,7 @@ if uploaded_files:
     st.sidebar.success(f"✅ Loaded {len(df)} total rows from {len(uploaded_files)} file(s), showing {len(filtered_df)} after filter")
     
     # ========== 12 Tabs ==========
-        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
