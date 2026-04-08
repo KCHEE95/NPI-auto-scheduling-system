@@ -795,17 +795,25 @@ if uploaded_files:
                 mime="text/csv"
             )
         
-        # 额外：展示最紧急的5个任务（所有部门）- 修复错误
+        # 额外：展示最紧急的5个任务（所有部门）- 修复 datetime 错误
         st.markdown("---")
         st.subheader("⏰ Most Urgent Pending Tasks (Across All Departments)")
-        # 确保 ETA 有效，按 ETA 排序取前5
-        urgent_df = pending_df.dropna(subset=['ETA']).sort_values('ETA').head(5)
-        if not urgent_df.empty:
-            urgent = urgent_df[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']].copy()
-            urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
-            st.dataframe(urgent, use_container_width=True)
+        # 确保 ETA 是 datetime 类型
+        pending_temp = pending_df.copy()
+        # 转换 ETA 为 datetime，无法转换的变为 NaT
+        if 'ETA' in pending_temp.columns:
+            pending_temp['ETA'] = pd.to_datetime(pending_temp['ETA'], errors='coerce')
+            # 删除 ETA 为 NaT 的行
+            urgent_df = pending_temp.dropna(subset=['ETA']).sort_values('ETA').head(5)
+            if not urgent_df.empty:
+                urgent = urgent_df[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']].copy()
+                # 格式化日期
+                urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
+                st.dataframe(urgent, use_container_width=True)
+            else:
+                st.info("No pending tasks with valid ETA found.")
         else:
-            st.info("No pending tasks with valid ETA found.")
+            st.warning("ETA column not found in data.")
     
     with tab4:
         st.subheader("Quick sales query")
