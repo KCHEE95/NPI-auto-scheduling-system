@@ -115,6 +115,7 @@ DEFAULT_LEAD_TIME = {
     '2-PK-A': 0.1,
     'C-SAW': 0.1,
     'F-NPV1': 7.0,
+    'M-LC-CO2': 0.1,   # 单位：天（基于每天10工作小时）
     'DEFAULT': 1.0
 }
 
@@ -146,6 +147,7 @@ OP_TO_DEPT = {
     'P-GRD': 'Grinding',
     '2-PK-A': 'Packing A',
     'C-SAW': 'Sawing',
+    'M-LC-CO2': 'Laser Cut',   # 新增
     'DEFAULT': 'Unassigned'
 }
 
