@@ -795,12 +795,17 @@ if uploaded_files:
                 mime="text/csv"
             )
         
-        # 额外：展示最紧急的5个任务（所有部门）
+        # 额外：展示最紧急的5个任务（所有部门）- 修复错误
         st.markdown("---")
         st.subheader("⏰ Most Urgent Pending Tasks (Across All Departments)")
-        urgent = pending_df.nsmallest(5, 'ETA')[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']]
-        urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
-        st.dataframe(urgent, use_container_width=True)
+        # 确保 ETA 有效，按 ETA 排序取前5
+        urgent_df = pending_df.dropna(subset=['ETA']).sort_values('ETA').head(5)
+        if not urgent_df.empty:
+            urgent = urgent_df[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']].copy()
+            urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
+            st.dataframe(urgent, use_container_width=True)
+        else:
+            st.info("No pending tasks with valid ETA found.")
     
     with tab4:
         st.subheader("Quick sales query")
