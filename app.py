@@ -1224,21 +1224,6 @@ if uploaded_files:
         
         raw_df = st.session_state['df'].copy()
         
-        # Debug: show raw data for first 10 main parts
-        with st.expander("🔍 Debug: Check raw data structure"):
-            debug_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Assigned Eng'] + [f'Step {i}' for i in range(1, 6)]
-            debug_cols = [c for c in debug_cols if c in raw_df.columns]
-            st.write("First 20 rows of relevant columns:")
-            st.dataframe(raw_df[debug_cols].head(20), use_container_width=True)
-            
-            # Show unique Main Part Nums and their associated data
-            st.write("Sample Main Part Numbers and their JobNum/Asm:")
-            sample_mains = raw_df['Main Part Num'].dropna().unique()[:10]
-            for mp in sample_mains:
-                mp_rows = raw_df[raw_df['Main Part Num'] == mp]
-                job_values = mp_rows['JobNum/Asm'].unique().tolist()
-                st.write(f"- {mp}: JobNum/Asm values = {job_values}")
-        
         # Helper columns to detect steps and job number
         step_cols = [col for col in raw_df.columns if col.startswith('Step') and not col.endswith('_exists')]
         
@@ -1257,20 +1242,14 @@ if uploaded_files:
         # Group by Main Part Num - a main part is missing engineering work if:
         # - No row in the group has a JobNum/Asm
         # - No row in the group has any step
-        # - The main part is not a single part with steps (always require engineering)
         main_part_groups = raw_df.groupby('Main Part Num')
         missing_main_parts = []
         
         for main_part, group in main_part_groups:
-            # Check if ANY row in this group has job number or steps
             has_job_in_group = group['_has_job_num'].any()
             has_step_in_group = group['_has_any_step'].any()
             
-            # Also check if this is a single part (no subparts) - still needs engineering if no job/steps
-            is_single_part = len(group) == 1  # Only the main part row itself
-            
             if not has_job_in_group and not has_step_in_group:
-                # This main part is missing engineering work
                 # Extract assigned engineer: look at all rows, take first non-empty
                 eng_val = 'Unassigned'
                 if 'Assigned Eng' in group.columns:
@@ -1279,7 +1258,6 @@ if uploaded_files:
                     if not eng_series.empty:
                         eng_val = eng_series.iloc[0]
                 
-                # Get first row for display info
                 first_row = group.iloc[0]
                 missing_main_parts.append({
                     'Main Part Num': main_part,
@@ -1295,11 +1273,6 @@ if uploaded_files:
         
         if missing_df.empty:
             st.success("✅ All main parts have Job Number or operation steps. No engineering work required.")
-            # Show debug info even when empty
-            with st.expander("🔍 Debug: No missing parts found"):
-                st.write(f"Total unique Main Part Nums: {raw_df['Main Part Num'].nunique()}")
-                st.write(f"Rows with Job Number: {raw_df['_has_job_num'].sum()}")
-                st.write(f"Rows with Steps: {raw_df['_has_any_step'].sum()}")
         else:
             st.error(f"🚨 {len(missing_df)} main part(s) missing Engineering Workbench.")
             
