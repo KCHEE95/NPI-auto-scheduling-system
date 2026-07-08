@@ -148,6 +148,8 @@ OP_TO_DEPT = {
     '2-PK-A': 'Packing A',
     'C-SAW': 'Sawing',
     'M-LC-CO2': 'Laser Cut',   # 新增
+    '2-NP-A': 'Nut Press',   # 新增
+    'W-TIG': 'Welding TIG',   # 新增
     'DEFAULT': 'Unassigned'
 }
 
