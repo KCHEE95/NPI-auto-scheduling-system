@@ -595,6 +595,7 @@ if uploaded_files:
     ])
     
     with tab1:
+        st.write("🔵 当前正在渲染 Tab1")
         st.subheader("Real-time status of all subparts")
         st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), Est. Finish Date = latest subpart finish date + main part's own remaining days.")
         
@@ -656,6 +657,7 @@ if uploaded_files:
                     st.write(f"**{row['Subpart Part Num']}** (Job: {row['JobNum/Asm']}, Nest: {row['Nesting Num']}) : {steps_str}")
 
     with tab2:
+        st.write("🔵 当前正在渲染 Tab2")
         st.subheader("Department to-do list")
         
         # 确保优先级字典存在
@@ -788,6 +790,7 @@ if uploaded_files:
             )
     
     with tab3:
+        st.write("🔵 当前正在渲染 Tab3")
         st.subheader("📊 Department Capacity & Pending Work")
         
         # 确保优先级字典存在
@@ -947,6 +950,7 @@ if uploaded_files:
             st.warning("ETA column not found in data.")
     
     with tab4:
+        st.write("🔵 当前正在渲染 Tab4")
         st.subheader("Quick sales query")
         st.info("💡 Enter a Job Number, PO Number, or Subpart Part Num to see summary and sorted subpart list.")
         default_search = st.session_state.pop('selected_job_sales', '')
@@ -1005,6 +1009,7 @@ if uploaded_files:
                 st.warning("No matching Job, PO, or Subpart found.")
     
     with tab5:
+        st.write("🔵 当前正在渲染 Tab5")
         st.subheader("📅 Job Gantt Chart - Subpart Progress Visualization")
         st.caption("Select a Job to view its Gantt chart. Each bar represents a subpart from Planned Start to Estimated Finish Date. Color indicates current department. The red dashed line marks today.")
         all_jobs = sorted(filtered_df['_job_base'].dropna().unique())
@@ -1027,6 +1032,7 @@ if uploaded_files:
                 st.error("Failed to generate Gantt chart. Please check data.")
     
     with tab6:
+        st.write("🔵 当前正在渲染 Tab6")
         st.subheader("⚠️ Delayed Tasks Alert Dashboard")
         delayed_df = filtered_df[filtered_df['Status'] == '⚠️ Delayed'].copy()
         if delayed_df.empty:
@@ -1051,6 +1057,7 @@ if uploaded_files:
             st.dataframe(job_delay, use_container_width=True)
     
     with tab7:
+        st.write("🔵 当前正在渲染 Tab7")
         st.subheader("📊 Global Job Progress Board")
         st.caption("Overview of all Jobs: estimated finish dates, progress, bottleneck departments, and more.")
         
@@ -1170,6 +1177,7 @@ if uploaded_files:
                 st.warning("No data found for this Job.")
     
     with tab8:
+        st.write("🔵 当前正在渲染 Tab8")
         st.subheader("⏰ Stuck Tasks Alert (Exceeding Custom Time Threshold)")
         st.caption("Tasks that have been in the same operation longer than the user-defined threshold (hours). Only tasks that were advanced via 'Complete & Next' are tracked.")
         stuck_hours = st.number_input("Alert when a task stays in the same operation longer than (hours)", min_value=1, max_value=168, value=24, step=1, help="Set threshold in hours. Tasks exceeding this time will appear as stuck.")
@@ -1211,6 +1219,7 @@ if uploaded_files:
                 st.dataframe(stuck_display, use_container_width=True)
     
     with tab9:
+        st.write("🔵 当前正在渲染 Tab9")
         st.subheader("📊 Customer Summary - Main Parts Only (based on Exwork Date)")
         st.caption("Aggregates main parts (JobNum/Asm ending with -0) per customer and month using Exwork Date. Shows total main parts per customer.")
         
@@ -1275,6 +1284,7 @@ if uploaded_files:
                             st.dataframe(last_7_days, use_container_width=True)
     
     with tab10:
+        st.write("🔵 当前正在渲染 Tab10")
         st.subheader("🛠️ Programmer Board - Missing Nesting Programs")
         st.caption("Tasks that have no Nesting Number (not programmed yet) for selected departments. Sort by Material (Mtl 10) to prioritize.")
         
@@ -1313,6 +1323,7 @@ if uploaded_files:
                         st.dataframe(programmed_df, use_container_width=True)
     
     with tab11:
+        st.write("🔵 当前正在渲染 Tab11")
         st.subheader("🛠️ Engineering Workbench Required")
         st.caption("Show main parts missing Engineering Workbench (no Job Number and no operation steps on ANY row of this main part). Grouped by assigned engineer.")
         
@@ -1403,6 +1414,7 @@ if uploaded_files:
             st.dataframe(cust_summary, use_container_width=True)
 
     with tab12:
+        st.write("🔵 当前正在渲染 Tab12")
         st.subheader("⭐ Job Priority Manager")
         st.caption("Set priority for each job (High/Medium/Low). High priority tasks will appear at the top of department workbenches and pending lists.")
         
