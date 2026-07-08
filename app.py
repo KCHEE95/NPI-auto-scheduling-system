@@ -195,6 +195,39 @@ def load_multiple_excel(files):
     else:
         return pd.DataFrame()
 
+def extract_image_from_excel(file_bytes, row_idx):
+    """
+    从 Excel 文件的指定行（DataFrame 行索引）提取图片，返回 data URL
+    """
+    from openpyxl import load_workbook
+    import base64
+    import io
+    
+    try:
+        wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
+        ws = wb.active
+        
+        # DataFrame 行索引 0 对应 Excel 第 6 行（因为 header=5）
+        excel_row = row_idx + 6
+        
+        for img in ws._images:
+            if hasattr(img, 'anchor') and hasattr(img.anchor, '_from'):
+                img_row = img.anchor._from.row
+                # 允许 ±1 行偏差，因为图片可能跨行
+                if abs(img_row - excel_row) <= 1:
+                    img_data = img._data()
+                    b64 = base64.b64encode(img_data).decode('utf-8')
+                    # 简单判断图片类型
+                    if b64.startswith('/9j/'):
+                        mime = 'image/jpeg'
+                    else:
+                        mime = 'image/png'
+                    return f"data:{mime};base64,{b64}"
+        return None
+    except Exception as e:
+        # 静默失败，不中断流程
+        return None
+
 def extract_step_sequence(row):
     steps = []
     step_col_candidates = [f'Step {i}' for i in range(1, 21)]
