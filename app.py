@@ -659,7 +659,7 @@ if uploaded_files:
                 if row['_steps']:
                     steps_str = " → ".join(row['_steps'])
                     st.write(f"**{row['Subpart Part Num']}** (Job: {row['JobNum/Asm']}, Nest: {row['Nesting Num']}) : {steps_str}")
-    
+
     with tab2:
         st.subheader("Department to-do list")
         
@@ -667,8 +667,10 @@ if uploaded_files:
         if 'priority_dict' not in st.session_state:
             all_jobs = filtered_df['_job_base'].dropna().unique()
             st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
-            
+        
         st.info("💡 **JobNum/Asm format**: `-0` indicates the main part; `-1`, `-2` etc. indicate subparts. Main part's Est. Finish Date = max(subpart ETA) + main part's own remaining days.\n\n📊 **Calibration**: Enter actual hours and click Calibrate to adjust future ETAs.\n\n⭐ **Priority**: High priority tasks appear first and are marked with 🔴.")
+        
+        # ... 后面继续您原来的 tab2 代码 ...
         
         dept_list = sorted(filtered_df['Current Dept'].unique())
         selected_dept = st.selectbox("Select department", dept_list, key="dept_select")
