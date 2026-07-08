@@ -596,7 +596,7 @@ if uploaded_files:
     
     with tab1:
         st.subheader("Real-time status of all subparts")
-        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), Est. Finish Date = latest subpart finish date + main part's own remaining days.\n\n**Click a row then press 'View Image' to see part thumbnail.**")
+        st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), Est. Finish Date = latest subpart finish date + main part's own remaining days.")
         
         base_cols = ['Main Part Num', 'Subpart Part Num', 'JobNum/Asm', 'Nesting Num',
                      'Current Operation', 'Next Operation', 'Current Dept', 
@@ -605,65 +605,55 @@ if uploaded_files:
         display_cols = [c for c in base_cols + extra_cols if c in filtered_df.columns]
         df_display = filtered_df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}).sort_values('Est. Finish Date')
         
-        # 使用带 selection 的数据框
-        event = st.dataframe(
-            df_display,
-            use_container_width=True,
-            height=500,
-            selection_mode="single-row",
-            on_select="rerun",
-            key="image_viewer_table"
-        )  # ← 这里补上右括号
+        # 显示表格（不带行选择，保持简洁）
+        st.dataframe(df_display, use_container_width=True, height=500)
         
-        # 获取选中的行
-        selected_rows = event.selection.rows if hasattr(event, 'selection') else []
+        # ---- 图片查看区域 ----
+        st.markdown("---")
+        st.subheader("📷 View Part Image")
+        st.caption("Select a Subpart Part Num from the dropdown below, then click 'Show Image' to view its thumbnail.")
         
-        col_btn1, col_btn2 = st.columns(2)
-        with col_btn1:
-            if selected_rows and st.button("🔍 View Part Image", use_container_width=True):
-                selected_idx = selected_rows[0]
-                selected_row = filtered_df.iloc[selected_idx]
-                subpart_num = selected_row.get('Subpart Part Num', '')
-                main_part = selected_row.get('Main Part Num', '')
-                job_num = selected_row.get('JobNum/Asm', '')
-                
-                if 'uploaded_file_bytes' in st.session_state:
-                    # 获取第一个文件（简化，实际可根据文件名匹配）
-                    file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
-                    file_bytes = st.session_state['uploaded_file_bytes'][file_name]
-                    img_data = extract_image_from_excel(file_bytes, selected_idx)
+        # 获取所有子部件编号（去重、排除空值）
+        subpart_list = filtered_df['Subpart Part Num'].dropna().unique()
+        subpart_list = sorted([str(x) for x in subpart_list if str(x).strip() != ''])
+        
+        if subpart_list:
+            col_select, col_btn = st.columns([3, 1])
+            with col_select:
+                selected_subpart = st.selectbox("Select Subpart Part Num", subpart_list, key="img_select")
+            with col_btn:
+                show_clicked = st.button("🔍 Show Image", use_container_width=True)
+            
+            if show_clicked:
+                # 找到该子部件所在的行（取第一个匹配）
+                matched_rows = filtered_df[filtered_df['Subpart Part Num'] == selected_subpart]
+                if not matched_rows.empty:
+                    row = matched_rows.iloc[0]
+                    idx = matched_rows.index[0]  # 获取原始DataFrame索引
                     
-                    if img_data:
-                        st.session_state['img_dialog_data'] = {
-                            'subpart': subpart_num,
-                            'main_part': main_part,
-                            'job_num': job_num,
-                            'image': img_data
-                        }
-                        st.session_state['show_img_dialog'] = True
+                    # 提取图片
+                    if 'uploaded_file_bytes' in st.session_state:
+                        # 获取第一个上传的文件（简化）
+                        file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
+                        file_bytes = st.session_state['uploaded_file_bytes'][file_name]
+                        img_data = extract_image_from_excel(file_bytes, idx)
+                        
+                        if img_data:
+                            # 显示图片和部件信息
+                            st.image(img_data, use_container_width=True)
+                            st.caption(f"**Part:** {selected_subpart}")
+                            st.caption(f"**Main Part:** {row.get('Main Part Num', '')}")
+                            st.caption(f"**Job:** {row.get('JobNum/Asm', '')}")
+                        else:
+                            st.warning(f"No image found for subpart {selected_subpart}")
                     else:
-                        st.warning(f"No image found for subpart {subpart_num}")
+                        st.warning("No file data available for image extraction. Please re-upload the Excel file.")
                 else:
-                    st.warning("No file data available for image extraction.")
+                    st.warning("Selected subpart not found in data.")
+        else:
+            st.info("No subpart numbers found in the data.")
         
-        with col_btn2:
-            if st.button("🔄 Refresh Table", use_container_width=True):
-                st.rerun()
-        
-        # 显示图片弹窗
-        if st.session_state.get('show_img_dialog', False):
-            data = st.session_state.get('img_dialog_data', {})
-            if data:
-                with st.popover("📷 Part Image", use_container_width=True):
-                    st.image(data.get('image', ''), use_container_width=True)
-                    st.caption(f"**Part:** {data.get('subpart', '')}")
-                    st.caption(f"**Main Part:** {data.get('main_part', '')}")
-                    st.caption(f"**Job:** {data.get('job_num', '')}")
-                    if st.button("Close", use_container_width=True):
-                        st.session_state['show_img_dialog'] = False
-                        st.rerun()
-        
-        # 原有 "View full operation chain" 展开器保持不变
+        # 原有的 "View full operation chain" 展开器
         with st.expander("🔍 View full operation chain for each subpart"):
             for _, row in filtered_df.iterrows():
                 if row['_steps']:
