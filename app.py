@@ -613,7 +613,7 @@ if uploaded_files:
             selection_mode="single-row",
             on_select="rerun",
             key="image_viewer_table"
-        )
+        )  # ← 这里补上右括号
         
         # 获取选中的行
         selected_rows = event.selection.rows if hasattr(event, 'selection') else []
