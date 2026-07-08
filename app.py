@@ -579,7 +579,7 @@ if uploaded_files:
     st.sidebar.success(f"✅ Loaded {len(df)} total rows from {len(uploaded_files)} file(s), showing {len(filtered_df)} after filter")
     
     # ========== 12 Tabs ==========
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10, tab11, tab12 = st.tabs([
+    , tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, 0, tab11, tab12 = st.tabs([
         "📋 All Items",
         "🏭 Department Workbench",
         "📈 Capacity Dashboard",
@@ -595,7 +595,6 @@ if uploaded_files:
     ])
     
     with tab1:
-        st.write("🔵 当前正在渲染 Tab1")
         st.subheader("Real-time status of all subparts")
         st.caption("**Status explanation**: ✅ On track = Estimated finish date is today or in the future; ⚠️ Delayed = Estimated finish date has passed.\n\n**Note**: For main parts (JobNum/Asm ending with -0), Est. Finish Date = latest subpart finish date + main part's own remaining days.")
         
@@ -606,55 +605,7 @@ if uploaded_files:
         display_cols = [c for c in base_cols + extra_cols if c in filtered_df.columns]
         df_display = filtered_df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}).sort_values('Est. Finish Date')
         
-        # 显示表格
         st.dataframe(df_display, use_container_width=True, height=500)
-        
-        # ---- 图片查看区域（简化，不使用 st.container） ----
-        #st.markdown("---")
-        #st.subheader("📷 View Part Image")
-        #st.caption("Select a Subpart Part Num from the dropdown below, then click 'Show Image' to view its thumbnail.")
-        
-        #subpart_list = filtered_df['Subpart Part Num'].dropna().unique()
-        #subpart_list = sorted([str(x) for x in subpart_list if str(x).strip() != ''])
-        
-        #if subpart_list:
-            #col_select, col_btn = st.columns([3, 1])
-            #with col_select:
-                #selected_subpart = st.selectbox("Select Subpart Part Num", subpart_list, key="img_select")
-            #with col_btn:
-                #show_clicked = st.button("🔍 Show Image", use_container_width=True)
-            
-            #if show_clicked:
-                #matched_rows = filtered_df[filtered_df['Subpart Part Num'] == selected_subpart]
-                #if not matched_rows.empty:
-                    #row = matched_rows.iloc[0]
-                    #idx = matched_rows.index[0]
-                    
-                    #if 'uploaded_file_bytes' in st.session_state:
-                        #file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
-                        #file_bytes = st.session_state['uploaded_file_bytes'][file_name]
-                        #img_data = extract_image_from_excel(file_bytes, idx)
-                        
-                        #if img_data:
-                            #st.image(img_data, use_container_width=True)
-                            #st.caption(f"**Part:** {selected_subpart}")
-                            #st.caption(f"**Main Part:** {row.get('Main Part Num', '')}")
-                            #st.caption(f"**Job:** {row.get('JobNum/Asm', '')}")
-                        #else:
-                            #st.warning(f"No image found for subpart {selected_subpart}")
-                    #else:
-                        #st.warning("No file data available for image extraction.")
-                #else:
-                    #st.warning("Selected subpart not found in data.")
-        #else:
-            #st.info("No subpart numbers found in the data.")
-        
-        # 原有的展开器
-        #with st.expander("🔍 View full operation chain for each subpart"):
-            #for _, row in filtered_df.iterrows():
-                #if row['_steps']:
-                    #steps_str = " → ".join(row['_steps'])
-                    #st.write(f"**{row['Subpart Part Num']}** (Job: {row['JobNum/Asm']}, Nest: {row['Nesting Num']}) : {steps_str}")
 
     with tab2:
         st.write("🔵 当前正在渲染 Tab2")
