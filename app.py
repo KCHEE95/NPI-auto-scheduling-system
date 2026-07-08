@@ -500,15 +500,21 @@ if uploaded_files:
             df['Exwork Date'] = pd.to_datetime(df['Exwork Date'], errors='coerce')
         df['_step_start_time'] = pd.NaT
         st.session_state['original_df'] = df
-                # 初始化优先级字典（为每个job base设置默认优先级Medium）
-        if 'priority_dict' not in st.session_state:
-            all_jobs = df['_job_base'].unique()
-            st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
-        st.session_state['df'] = df.copy()
-                # Initialize priority_dict for all jobs (default Medium)
+        # 初始化优先级字典（为每个job base设置默认优先级Medium）
         if 'priority_dict' not in st.session_state:
             all_jobs = df['_job_base'].dropna().unique()
             st.session_state.priority_dict = {job: 'Medium' for job in all_jobs}
+        st.session_state['df'] = df.copy()
+        
+        # ---- 新增：保存上传文件的二进制内容（用于图片提取） ----
+        if 'uploaded_file_bytes' not in st.session_state:
+            file_bytes_dict = {}
+            for f in uploaded_files:
+                f.seek(0)  # 重置文件指针，因为 pandas 已经读取过
+                file_bytes_dict[f.name] = f.getvalue()
+            st.session_state['uploaded_file_bytes'] = file_bytes_dict
+        # ---- 新增结束 ----
+        
         file_names = ', '.join([f.name for f in uploaded_files])
         st.session_state['file_name'] = file_names
         if 'Order Category' in df.columns:
