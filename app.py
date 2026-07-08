@@ -969,6 +969,10 @@ if uploaded_files:
         st.subheader("📊 Global Job Progress Board")
         st.caption("Overview of all Jobs: estimated finish dates, progress, bottleneck departments, and more.")
         
+        # 初始化甘特图 key 计数器（避免重复 key 错误）
+        if 'gantt_key_counter' not in st.session_state:
+            st.session_state.gantt_key_counter = 0
+        
         job_group = filtered_df.groupby('_job_base').agg({
             'Subpart Part Num': 'count',
             'ETA': lambda x: x.max(),
@@ -1021,6 +1025,8 @@ if uploaded_files:
                 st.session_state.show_sales = False
                 st.session_state.gantt_job = selected_job_for_action
                 st.session_state.sales_job = None
+                # 每次点击增加计数器，确保甘特图 key 唯一
+                st.session_state.gantt_key_counter += 1
                 st.rerun()
         with col_sales:
             if st.button("View Sales Summary for this Job"):
@@ -1035,7 +1041,8 @@ if uploaded_files:
             st.subheader(f"📅 Gantt Chart for Job {st.session_state.gantt_job}")
             fig = create_gantt_for_job(filtered_df, st.session_state.gantt_job, datetime.now().date())
             if fig:
-                st.plotly_chart(fig, use_container_width=True, key=f"gantt_{st.session_state.gantt_job}")
+                # 使用唯一的 key：job 名 + 计数器
+                st.plotly_chart(fig, use_container_width=True, key=f"gantt_{st.session_state.gantt_job}_{st.session_state.gantt_key_counter}")
             else:
                 st.warning("Could not generate Gantt chart.")
         
