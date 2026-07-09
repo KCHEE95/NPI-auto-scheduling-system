@@ -631,7 +631,7 @@ if uploaded_files:
                         
                         if img_data:
                             # 显示图片，宽度设为400像素
-                            st.image(img_data, width=200)
+                            st.image(img_data, width=300)
                             st.caption(f"**Part:** {selected_subpart}")
                             st.caption(f"**Main Part:** {row.get('Main Part Num', '')}")
                             st.caption(f"**Job:** {row.get('JobNum/Asm', '')}")
