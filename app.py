@@ -606,6 +606,53 @@ if uploaded_files:
         df_display = filtered_df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}).sort_values('Est. Finish Date')
         
         st.dataframe(df_display, use_container_width=True, height=500)
+        
+        # ---- 图片查看区域（安全版本） ----
+        st.markdown("---")
+        st.subheader("📷 View Part Image")
+        st.caption("Select a Subpart Part Num from the dropdown below, then click 'Show Image' to view its thumbnail.")
+        
+        # 获取所有子部件编号（去重、排除空值）
+        subpart_list = filtered_df['Subpart Part Num'].dropna().unique()
+        subpart_list = sorted([str(x) for x in subpart_list if str(x).strip() != ''])
+        
+        if subpart_list:
+            # 下拉选择器
+            selected_subpart = st.selectbox("Select Subpart Part Num", subpart_list, key="img_select_safe")
+            
+            # 显示图片按钮
+            if st.button("🔍 Show Image", key="img_show_safe"):
+                matched_rows = filtered_df[filtered_df['Subpart Part Num'] == selected_subpart]
+                if not matched_rows.empty:
+                    row = matched_rows.iloc[0]
+                    idx = matched_rows.index[0]
+                    
+                    if 'uploaded_file_bytes' in st.session_state:
+                        file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
+                        file_bytes = st.session_state['uploaded_file_bytes'][file_name]
+                        img_data = extract_image_from_excel(file_bytes, idx)
+                        
+                        if img_data:
+                            # 显示图片和部件信息
+                            st.image(img_data, use_container_width=True)
+                            st.caption(f"**Part:** {selected_subpart}")
+                            st.caption(f"**Main Part:** {row.get('Main Part Num', '')}")
+                            st.caption(f"**Job:** {row.get('JobNum/Asm', '')}")
+                        else:
+                            st.warning(f"No image found for subpart {selected_subpart}")
+                    else:
+                        st.warning("No file data available for image extraction.")
+                else:
+                    st.warning("Selected subpart not found in data.")
+        else:
+            st.info("No subpart numbers found in the data.")
+        
+        # 原有的展开器
+        with st.expander("🔍 View full operation chain for each subpart"):
+            for _, row in filtered_df.iterrows():
+                if row['_steps']:
+                    steps_str = " → ".join(row['_steps'])
+                    st.write(f"**{row['Subpart Part Num']}** (Job: {row['JobNum/Asm']}, Nest: {row['Nesting Num']}) : {steps_str}")
 
     with tab2:
         st.write("🔵 当前正在渲染 Tab2")
