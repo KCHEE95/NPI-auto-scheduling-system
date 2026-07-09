@@ -917,7 +917,7 @@ if uploaded_files:
                 key="pending_table_img"
             )
             
-            # 获取选中的行
+            # 获取选中的行（显示位置）
             selected_rows = event.selection.rows if hasattr(event, 'selection') else []
             
             # ---- 图片查看区域（在表格下方） ----
@@ -929,8 +929,11 @@ if uploaded_files:
             with col_img_btn:
                 if selected_rows:
                     if st.button("🔍 Show Image for Selected Part", use_container_width=True):
-                        selected_idx = selected_rows[0]
-                        selected_row = view_df.iloc[selected_idx]
+                        # 获取选中的显示位置
+                        display_pos = selected_rows[0]
+                        # 通过 iloc 获取该行数据，并取得原始 DataFrame 索引
+                        selected_row = view_df.iloc[display_pos]
+                        original_idx = selected_row.name  # 关键修复：使用原始索引而非显示位置
                         subpart_num = selected_row.get('Subpart Part Num', '')
                         main_part = selected_row.get('Main Part Num', '')
                         job_num = selected_row.get('JobNum/Asm', '')
@@ -938,7 +941,8 @@ if uploaded_files:
                         if 'uploaded_file_bytes' in st.session_state:
                             file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
                             file_bytes = st.session_state['uploaded_file_bytes'][file_name]
-                            img_data = extract_image_from_excel(file_bytes, selected_idx)
+                            # 传入原始索引
+                            img_data = extract_image_from_excel(file_bytes, original_idx)
                             
                             if img_data:
                                 st.image(img_data, width=400)
@@ -965,7 +969,7 @@ if uploaded_files:
                 mime="text/csv"
             )
         
-        # ---- 最紧急任务（保持不变） ----
+        # ---- 最紧急任务 ----
         st.markdown("---")
         st.subheader("⏰ Most Urgent Pending Tasks (Across All Departments)")
         pending_temp = pending_df.copy()
