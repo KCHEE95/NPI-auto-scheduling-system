@@ -207,17 +207,16 @@ def extract_image_from_excel(file_bytes, row_idx):
         wb = load_workbook(io.BytesIO(file_bytes), data_only=True)
         ws = wb.active
         
-        # DataFrame 行索引 0 对应 Excel 第 6 行（因为 header=5）
-        excel_row = row_idx + 6
+        # DataFrame 行索引 0 对应 Excel 第 7 行（因为 header=5，数据从第7行开始）
+        excel_row = row_idx + 7
         
         for img in ws._images:
             if hasattr(img, 'anchor') and hasattr(img.anchor, '_from'):
                 img_row = img.anchor._from.row
-                # 允许 ±1 行偏差，因为图片可能跨行
+                # 允许 ±1 行偏差（有些图片可能跨行）
                 if abs(img_row - excel_row) <= 1:
                     img_data = img._data()
                     b64 = base64.b64encode(img_data).decode('utf-8')
-                    # 简单判断图片类型
                     if b64.startswith('/9j/'):
                         mime = 'image/jpeg'
                     else:
