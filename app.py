@@ -784,7 +784,6 @@ if uploaded_files:
             )
     
     with tab3:
-        st.write("🔵 当前正在渲染 Tab3")
         st.subheader("📊 Department Capacity & Pending Work")
         
         # 确保优先级字典存在
@@ -881,13 +880,12 @@ if uploaded_files:
             )
             view_df = view_df[mask]
         
-        # 排序选项
-                # 添加优先级列
+        # 添加优先级列
         view_df['Priority'] = view_df['_job_base'].map(st.session_state.priority_dict).fillna('Medium')
         priority_order = {'High': 0, 'Medium': 1, 'Low': 2}
         view_df['_priority_weight'] = view_df['Priority'].map(priority_order)
         
-        # 排序选项（增加优先级排序）
+        # 排序选项
         sort_by = st.selectbox("Sort by", ["Priority then ETA", "ETA (earliest first)", "Exwork Date (earliest first)", "JobNum/Asm", "Subpart Part Num"])
         if sort_by == "Priority then ETA":
             view_df = view_df.sort_values(['_priority_weight', 'ETA'])
@@ -900,7 +898,7 @@ if uploaded_files:
         elif sort_by == "Subpart Part Num":
             view_df = view_df.sort_values('Subpart Part Num')
         
-        # 显示待办列表
+        # ---- 显示待办列表（带行选择） ----
         if view_df.empty:
             st.info("No pending tasks match the criteria.")
         else:
@@ -908,11 +906,55 @@ if uploaded_files:
             display_cols = ['JobNum/Asm', 'Subpart Part Num', 'Priority', 'Current Operation', 'Current Dept', 
                             'ETA', 'Status', 'Exwork Date', 'Order Category', 'PO - POLine']
             display_cols = [c for c in display_cols if c in view_df.columns]
-            st.dataframe(
+            
+            # 使用带选择功能的 dataframe
+            event = st.dataframe(
                 view_df[display_cols].rename(columns={'ETA': 'Est. Finish Date'}),
                 use_container_width=True,
-                height=500
+                height=500,
+                selection_mode="single-row",
+                on_select="rerun",
+                key="pending_table_img"
             )
+            
+            # 获取选中的行
+            selected_rows = event.selection.rows if hasattr(event, 'selection') else []
+            
+            # ---- 图片查看区域（在表格下方） ----
+            st.markdown("---")
+            st.subheader("📷 View Part Image")
+            st.caption("Select a row in the table above, then click 'Show Image' to view its thumbnail.")
+            
+            col_img_btn, col_img_clear = st.columns([1, 1])
+            with col_img_btn:
+                if selected_rows:
+                    if st.button("🔍 Show Image for Selected Part", use_container_width=True):
+                        selected_idx = selected_rows[0]
+                        selected_row = view_df.iloc[selected_idx]
+                        subpart_num = selected_row.get('Subpart Part Num', '')
+                        main_part = selected_row.get('Main Part Num', '')
+                        job_num = selected_row.get('JobNum/Asm', '')
+                        
+                        if 'uploaded_file_bytes' in st.session_state:
+                            file_name = list(st.session_state['uploaded_file_bytes'].keys())[0]
+                            file_bytes = st.session_state['uploaded_file_bytes'][file_name]
+                            img_data = extract_image_from_excel(file_bytes, selected_idx)
+                            
+                            if img_data:
+                                st.image(img_data, width=400)
+                                st.caption(f"**Part:** {subpart_num}")
+                                st.caption(f"**Main Part:** {main_part}")
+                                st.caption(f"**Job:** {job_num}")
+                            else:
+                                st.warning(f"No image found for subpart {subpart_num}")
+                        else:
+                            st.warning("No file data available for image extraction.")
+                else:
+                    st.button("🔍 Show Image for Selected Part", use_container_width=True, disabled=True, help="Please select a row in the table first.")
+            
+            with col_img_clear:
+                if st.button("🗑️ Clear Image", use_container_width=True):
+                    st.rerun()
             
             # 导出CSV
             csv = view_df[display_cols].to_csv(index=False).encode('utf-8-sig')
@@ -923,19 +965,15 @@ if uploaded_files:
                 mime="text/csv"
             )
         
-        # 额外：展示最紧急的5个任务（所有部门）- 修复 datetime 错误
+        # ---- 最紧急任务（保持不变） ----
         st.markdown("---")
         st.subheader("⏰ Most Urgent Pending Tasks (Across All Departments)")
-        # 确保 ETA 是 datetime 类型
         pending_temp = pending_df.copy()
-        # 转换 ETA 为 datetime，无法转换的变为 NaT
         if 'ETA' in pending_temp.columns:
             pending_temp['ETA'] = pd.to_datetime(pending_temp['ETA'], errors='coerce')
-            # 删除 ETA 为 NaT 的行
             urgent_df = pending_temp.dropna(subset=['ETA']).sort_values('ETA').head(5)
             if not urgent_df.empty:
                 urgent = urgent_df[['JobNum/Asm', 'Subpart Part Num', 'Current Dept', 'ETA', 'Status']].copy()
-                # 格式化日期
                 urgent['ETA'] = urgent['ETA'].dt.strftime('%Y-%m-%d')
                 st.dataframe(urgent, use_container_width=True)
             else:
