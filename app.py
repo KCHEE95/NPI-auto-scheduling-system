@@ -607,20 +607,17 @@ if uploaded_files:
         
         st.dataframe(df_display, use_container_width=True, height=500)
         
-        # ---- 图片查看区域（安全版本） ----
+        # ---- 图片查看区域 ----
         st.markdown("---")
         st.subheader("📷 View Part Image")
         st.caption("Select a Subpart Part Num from the dropdown below, then click 'Show Image' to view its thumbnail.")
         
-        # 获取所有子部件编号（去重、排除空值）
         subpart_list = filtered_df['Subpart Part Num'].dropna().unique()
         subpart_list = sorted([str(x) for x in subpart_list if str(x).strip() != ''])
         
         if subpart_list:
-            # 下拉选择器
             selected_subpart = st.selectbox("Select Subpart Part Num", subpart_list, key="img_select_safe")
             
-            # 显示图片按钮
             if st.button("🔍 Show Image", key="img_show_safe"):
                 matched_rows = filtered_df[filtered_df['Subpart Part Num'] == selected_subpart]
                 if not matched_rows.empty:
@@ -633,8 +630,8 @@ if uploaded_files:
                         img_data = extract_image_from_excel(file_bytes, idx)
                         
                         if img_data:
-                            # 显示图片和部件信息
-                            st.image(img_data, use_container_width=True)
+                            # 显示图片，宽度设为400像素
+                            st.image(img_data, width=400)
                             st.caption(f"**Part:** {selected_subpart}")
                             st.caption(f"**Main Part:** {row.get('Main Part Num', '')}")
                             st.caption(f"**Job:** {row.get('JobNum/Asm', '')}")
@@ -647,7 +644,6 @@ if uploaded_files:
         else:
             st.info("No subpart numbers found in the data.")
         
-        # 原有的展开器
         with st.expander("🔍 View full operation chain for each subpart"):
             for _, row in filtered_df.iterrows():
                 if row['_steps']:
